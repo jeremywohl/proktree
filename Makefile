@@ -11,6 +11,9 @@ prodbuild:
 test:
 	go test -v .
 
+install:
+	go install
+
 clean:
 	go clean
 	rm -f proktree
@@ -23,4 +26,4 @@ deps:
 	go mod download
 	go mod tidy
 
-.PHONY: all build prodbuild test clean run deps
+.PHONY: all build prodbuild test install clean run deps
