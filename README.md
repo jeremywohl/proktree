@@ -2,6 +2,8 @@
 
 Print your processes as a nice tree. Filter by process id, user, and command substring.
 
+Works on MacOS (Mac lacks native tree printing in `ps`). Linux compatibility incoming.
+
 ## Sample output
 
 ```
