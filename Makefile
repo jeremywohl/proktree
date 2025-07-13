@@ -1,5 +1,7 @@
 # Makefile for proktree
 
+PREFIX ?= /usr/local
+
 all: build
 
 build:
@@ -13,6 +15,15 @@ test:
 
 install:
 	go install
+
+# Install man page (defaults to /usr/local, override with PREFIX=/opt/local make install-man)
+install-man:
+	mkdir -p $(PREFIX)/share/man/man1
+	cp proktree.1 $(PREFIX)/share/man/man1/
+	gzip -f $(PREFIX)/share/man/man1/proktree.1
+
+# Install both binary and man page
+install-all: install install-man
 
 clean:
 	go clean
@@ -40,4 +51,4 @@ build-darwin:
 
 build-all: build-linux build-darwin
 
-.PHONY: all build prodbuild test install clean run deps build-linux build-darwin build-all test-linux
+.PHONY: all build prodbuild test install install-man install-all clean run deps build-linux build-darwin build-all

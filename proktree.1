@@ -1,0 +1,184 @@
+.\" Manpage for proktree
+.\" Contact the author to correct errors or typos.
+.TH PROKTREE 1 "July 2025" "proktree" "User Commands"
+
+.SH NAME
+proktree \- print your processes as a tree, nicely displayed
+
+.SH SYNOPSIS
+.B proktree
+[\fI\,OPTIONS\/\fR]
+
+.SH DESCRIPTION
+.B proktree
+displays running processes in a tree structure, showing parent-child relationships
+between processes. You can filter to focus on specific processes, while retaining
+the lineage of ancestors and descendants (including those that fall outside the filter).
+
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-pid =\fIPID\fR
+Show only parents and descendants of process PID. Can be specified multiple times
+to include multiple process trees.
+
+.TP
+.BR \-u ", " \-\-user =\fIUSER\fR
+Show only parents and descendants of processes owned by USER. Can be specified
+multiple times. When used without an argument (\fB\-u\fR alone), defaults to the
+current user.
+
+.TP
+.BR \-s ", " \-\-string =\fISTRING\fR
+Show only parents and descendants of processes whose command contains STRING
+(case-sensitive). Can be specified multiple times.
+
+.TP
+.BR \-i ", " \-\-string\-insensitive =\fISTRING\fR
+Show only parents and descendants of processes whose command contains STRING
+(case-insensitive). Can be specified multiple times.
+
+.TP
+.BR \-\-long\-users
+Show full usernames without truncation. By default, usernames longer than 10
+characters are truncated with "...".
+
+.TP
+.BR \-\-long\-commands
+Show full command lines without truncation. By default, commands are truncated
+to fit the terminal width.
+
+.TP
+.BR \-h ", " \-\-help
+Show help message and exit.
+
+.SH OUTPUT FORMAT
+The output displays processes in a tree structure with the following columns:
+
+.TP
+.B PID
+Process ID
+
+.TP
+.B USER
+Process owner (truncated to 10 characters unless \-\-long\-users is used)
+
+.TP
+.B %CPU
+CPU usage percentage
+
+.TP
+.B %MEM
+Memory usage percentage  
+
+.TP
+.B RSS
+Resident Set Size (memory in MB or GB)
+
+.TP
+.B START
+Process start time:
+.RS
+.IP \(bu 2
+HH:MM for processes started within 24 hours
+.IP \(bu 2
+MonDD for processes started this calendar year  
+.IP \(bu 2
+YYYY for processes started in previous years
+.RE
+
+.TP
+.B TIME
+Cumulative CPU time:
+.RS
+.IP \(bu 2
+\-\- for zero CPU time
+.IP \(bu 2
+HH:MM:SS for under 24 hours
+.IP \(bu 2
+XXXhrs for 24+ hours
+.RE
+
+.TP
+.B COMMAND
+Process command line with tree viz
+
+.SH ENVIRONMENT
+.TP
+.B COLUMNS
+If set, overrides the detected terminal width for output formatting.
+
+.SH EXAMPLES
+.TP
+Display all processes in tree format:
+.B proktree
+
+.TP
+Show only processes owned by current user:
+.B proktree -u
+
+.TP
+Show processes owned by postgres user:
+.B proktree -u postgres
+
+.TP
+Show process with PID 1234 and its tree:
+.B proktree -p 1234
+
+.TP
+Find all Node.js processes:
+.B proktree -s node
+
+.TP
+Find all processes containing "nginx" (case-insensitive):
+.B proktree -i nginx
+
+.TP
+Show multiple users' processes:
+.B proktree -u www-data -u nginx -u apache
+
+.TP
+Show full usernames and commands:
+.B proktree --long-users --long-commands
+
+.TP
+Combine filters (shows processes matching any filter):
+.B proktree -p 1234 -u postgres -s redis
+
+.SH PLATFORM SUPPORT
+proktree supports macOS and Linux. Platform-specific process information is
+gathered using the native ps command.
+
+.SH NOTES
+proktree automatically filters out itself and any ps processes it spawns.
+
+When multiple filters are specified, they are combined with OR logic - a process
+tree is shown if it matches any of the specified filters.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+An error occurred (e.g., failed to get process list)
+
+.SH AUTHOR
+Written by Jeremy Wohl.
+
+.SH REPORTING BUGS
+Report bugs at: https://github.com/jeremywohl/proktree/issues
+
+.SH COPYRIGHT
+Copyright © 2024 Jeremy Wohl. License: MIT
+.br
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+.SH SEE ALSO
+.BR ps (1),
+.BR pstree (1),
+.BR top (1),
+.BR htop (1)
+
+.PP
+Full documentation at: https://github.com/jeremywohl/proktree

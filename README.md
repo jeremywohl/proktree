@@ -22,6 +22,12 @@ macOS, particularly, lacks a native tree display, like Linux's `ps f`.
 
 ## Installation
 
+### Via Homebrew
+```bash
+brew tap jeremywohl/tap
+brew install proktree
+```
+
 ### Via Go
 ```bash
 go install github.com/jeremywohl/proktree@latest
