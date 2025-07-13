@@ -613,9 +613,9 @@ func TestProcessTreeOutput(t *testing.T) {
 			maxUserLen: 10,
 			expected: []string{
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
-				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
-				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
-				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
+				"    100 daemon       0.0   0.1  10.0M  Jul10        --   └─┬─ /usr/sbin/sshd",
+				"    200 alice       25.3  15.2   1.0G  --        25hrs     └─┬─ sshd: alice [priv]",
+				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15       └─── -bash",
 			},
 		},
 		{
@@ -624,9 +624,9 @@ func TestProcessTreeOutput(t *testing.T) {
 			maxUserLen: 10,
 			expected: []string{
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
-				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
-				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
-				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
+				"    100 daemon       0.0   0.1  10.0M  Jul10        --   └─┬─ /usr/sbin/sshd",
+				"    200 alice       25.3  15.2   1.0G  --        25hrs     └─┬─ sshd: alice [priv]",
+				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15       └─── -bash",
 			},
 		},
 		{
@@ -635,9 +635,9 @@ func TestProcessTreeOutput(t *testing.T) {
 			maxUserLen: 10,
 			expected: []string{
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
-				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   ├─┬─ /usr/bin/postgres -D /var/lib/postgresql",
-				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30   │ ├─── postgres: writer process",
-				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00   │ └─── postgres: checkpointer",
+				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   └─┬─ /usr/bin/postgres -D /var/lib/postgresql",
+				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30     ├─── postgres: writer process",
+				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00     └─── postgres: checkpointer",
 			},
 		},
 		{
@@ -646,9 +646,9 @@ func TestProcessTreeOutput(t *testing.T) {
 			maxUserLen: 10,
 			expected: []string{
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
-				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   ├─┬─ /usr/bin/postgres -D /var/lib/postgresql",
-				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30   │ ├─── postgres: writer process",
-				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00   │ └─── postgres: checkpointer",
+				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   └─┬─ /usr/bin/postgres -D /var/lib/postgresql",
+				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30     ├─── postgres: writer process",
+				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00     └─── postgres: checkpointer",
 			},
 		},
 		{
@@ -660,7 +660,7 @@ func TestProcessTreeOutput(t *testing.T) {
 				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
 				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
 				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
-				"    400 bob         15.7   8.9 200.0M  14:40  00:05:45   ├─── node server.js",
+				"    400 bob         15.7   8.9 200.0M  14:40  00:05:45   └─── node server.js",
 			},
 		},
 		{

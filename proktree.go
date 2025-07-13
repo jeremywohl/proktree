@@ -152,114 +152,221 @@ func main() {
 }
 
 
-func printProcessTree(w io.Writer, processes map[int]*Process, children map[int][]int, skipPids map[int]bool, 
-	pidsToShow map[int]bool, pid int, prefix string, isLast bool, maxUserLen, maxStartLen, maxTimeLen, termWidth int) {
+// processLine represents a buffered output line with tree metadata
+type processLine struct {
+	pid        int
+	parentPid  int
+	depth      int
+	isLast     bool
+	hasVisibleChildren bool
+	content    string  // The formatted process info without tree graphics
+	prefix     string  // The full tree prefix including indentation
+}
+
+// collectProcessLines collects all process lines that should be displayed
+func collectProcessLines(processes map[int]*Process, children map[int][]int, skipPids map[int]bool,
+	pidsToShow map[int]bool, pid int, parentPid int, depth int, prefix string, isLast bool,
+	maxUserLen, maxStartLen, maxTimeLen int) []processLine {
 	
 	if skipPids[pid] {
-		return
+		return nil
 	}
 
 	p, ok := processes[pid]
 	if !ok {
-		return
+		return nil
 	}
 	
 	// Check if we should display this process
 	shouldDisplay := pidsToShow == nil || pidsToShow[pid]
+	if !shouldDisplay {
+		// Still need to collect children
+		var lines []processLine
+		childPids := children[pid]
+		sort.Ints(childPids)
+		
+		visibleChildren := 0
+		for _, childPid := range childPids {
+			if !skipPids[childPid] && (pidsToShow == nil || pidsToShow[childPid]) {
+				visibleChildren++
+			}
+		}
+		
+		childIdx := 0
+		for _, childPid := range childPids {
+			if skipPids[childPid] {
+				continue
+			}
+			
+			// Determine child prefix based on whether THIS process is last
+			var childPrefix string
+			if depth == 0 {
+				// Root's children start with no prefix
+				childPrefix = ""
+			} else if isLast {
+				// If this process is last, children get spaces
+				childPrefix = prefix + "  "
+			} else {
+				// If this process is not last, children get a vertical line
+				childPrefix = prefix + "│ "
+			}
+			
+			if pidsToShow != nil && !pidsToShow[childPid] {
+				// Need to check if this child has visible descendants
+				childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
+					childPid, pid, depth+1, childPrefix, false, maxUserLen, maxStartLen, maxTimeLen)
+				if len(childLines) > 0 {
+					lines = append(lines, childLines...)
+				}
+				continue
+			}
+			
+			childIdx++
+			isLastChild := childIdx == visibleChildren
+			childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
+				childPid, pid, depth+1, childPrefix, isLastChild, maxUserLen, maxStartLen, maxTimeLen)
+			lines = append(lines, childLines...)
+		}
+		return lines
+	}
 
-	// Format tree characters
-	var branch string
+	// Format the process info
+	content := fmt.Sprintf("%7d %-*s %5.1f %5.1f %6s  %-*s  %-*s",
+		p.PID, maxUserLen, truncateUser(p.User),
+		p.CPUPct, p.MemPct, formatRSS(p.RSSKB),
+		maxStartLen, formatStartTime(p.StartTime),
+		maxTimeLen, formatCPUTime(p.CPUTime))
+
+	// Check if has visible children
 	childPids := children[pid]
-	hasChildren := false
-	
-	// Check if has non-skipped children
-	// In filter mode, only count children that will be displayed
+	hasVisibleChildren := false
 	for _, childPid := range childPids {
-		if !skipPids[childPid] {
-			if pidsToShow == nil || pidsToShow[childPid] {
-				hasChildren = true
-				break
-			}
-		}
-	}
-	
-	if prefix == "" {
-		if hasChildren {
-			branch = "─┬─"
-		} else {
-			branch = "───"
-		}
-	} else if isLast {
-		if hasChildren {
-			branch = "└─┬─"
-		} else {
-			branch = "└───"
-		}
-	} else {
-		if hasChildren {
-			branch = "├─┬─"
-		} else {
-			branch = "├───"
+		if !skipPids[childPid] && (pidsToShow == nil || pidsToShow[childPid]) {
+			hasVisibleChildren = true
+			break
 		}
 	}
 
-	// Only print this process if it should be displayed
-	if shouldDisplay {
-		// Build the line
-		treeStr := prefix + branch
-		if branch != "" {
-			treeStr = treeStr + " "
-		}
-		line := fmt.Sprintf("%7d %-*s %5.1f %5.1f %6s  %-*s  %-*s  %s%s",
-			p.PID, maxUserLen, truncateUser(p.User),
-			p.CPUPct, p.MemPct, formatRSS(p.RSSKB),
-			maxStartLen, formatStartTime(p.StartTime),
-			maxTimeLen, formatCPUTime(p.CPUTime),
-			treeStr, p.Command)
-
-		// Truncate if too long (UTF-8 aware)
-		// Only truncate if we have a valid terminal width and not showing full commands
-		if !cli.ShowFullCommand && termWidth > 0 && len(line) > termWidth && termWidth > 3 {
-			// Convert to runes to handle UTF-8 properly
-			runes := []rune(line)
-			if len(runes) > termWidth-3 {
-				line = string(runes[:termWidth-3]) + "..."
-			}
-		}
-
-		fmt.Fprintln(w, line)
+	line := processLine{
+		pid:                pid,
+		parentPid:          parentPid,
+		depth:              depth,
+		prefix:             prefix,
+		isLast:             isLast,
+		hasVisibleChildren: hasVisibleChildren,
+		content:            content,
 	}
 
-	// Sort and print children
+	lines := []processLine{line}
+
+	// Collect children
 	sort.Ints(childPids)
 	
-	nonSkippedCount := 0
+	visibleChildren := 0
 	for _, childPid := range childPids {
-		if !skipPids[childPid] {
-			nonSkippedCount++
+		if !skipPids[childPid] && (pidsToShow == nil || pidsToShow[childPid]) {
+			visibleChildren++
 		}
 	}
 	
-	printed := 0
+	childIdx := 0
 	for _, childPid := range childPids {
 		if skipPids[childPid] {
 			continue
 		}
 		
-		printed++
+		// Determine child prefix based on whether THIS process is last
 		var childPrefix string
-		if prefix == "" {
-			childPrefix = " "
+		if depth == 0 {
+			// Root's children start with no prefix
+			childPrefix = ""
 		} else if isLast {
+			// If this process is last, children get spaces
 			childPrefix = prefix + "  "
 		} else {
+			// If this process is not last, children get a vertical line
 			childPrefix = prefix + "│ "
 		}
 		
-		isLastChild := printed == nonSkippedCount
-		printProcessTree(w, processes, children, skipPids, pidsToShow, childPid, childPrefix, isLastChild, 
-			maxUserLen, maxStartLen, maxTimeLen, termWidth)
+		if pidsToShow != nil && !pidsToShow[childPid] {
+			// Need to check if this child has visible descendants
+			childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
+				childPid, pid, depth+1, childPrefix, false, maxUserLen, maxStartLen, maxTimeLen)
+			if len(childLines) > 0 {
+				lines = append(lines, childLines...)
+			}
+			continue
+		}
+		
+		childIdx++
+		isLastChild := childIdx == visibleChildren
+		childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
+			childPid, pid, depth+1, childPrefix, isLastChild, maxUserLen, maxStartLen, maxTimeLen)
+		lines = append(lines, childLines...)
 	}
+
+	return lines
+}
+
+// renderProcessTree renders the collected lines with optimized tree graphics
+func renderProcessTree(w io.Writer, lines []processLine, processes map[int]*Process, termWidth int) {
+	// Render each line
+	for _, line := range lines {
+		// Determine the branch characters
+		var branch string
+		if line.depth == 0 {
+			if line.hasVisibleChildren {
+				branch = "─┬─"
+			} else {
+				branch = "───"
+			}
+		} else if line.isLast {
+			if line.hasVisibleChildren {
+				branch = "└─┬─"
+			} else {
+				branch = "└───"
+			}
+		} else {
+			if line.hasVisibleChildren {
+				branch = "├─┬─"
+			} else {
+				branch = "├───"
+			}
+		}
+
+		// Get the command
+		p := processes[line.pid]
+		
+		// Build the full line with proper tree alignment
+		treeStr := line.prefix + branch
+		// Root needs 2 spaces, others need 3 for proper alignment
+		spacing := "   "
+		if line.depth == 0 {
+			spacing = "  "
+		}
+		fullLine := fmt.Sprintf("%s%s%s %s", line.content, spacing, treeStr, p.Command)
+
+		// Truncate if too long
+		if !cli.ShowFullCommand && termWidth > 0 && len(fullLine) > termWidth && termWidth > 3 {
+			runes := []rune(fullLine)
+			if len(runes) > termWidth-3 {
+				fullLine = string(runes[:termWidth-3]) + "..."
+			}
+		}
+
+		fmt.Fprintln(w, fullLine)
+	}
+}
+
+func printProcessTree(w io.Writer, processes map[int]*Process, children map[int][]int, skipPids map[int]bool, 
+	pidsToShow map[int]bool, pid int, prefix string, isLast bool, maxUserLen, maxStartLen, maxTimeLen, termWidth int) {
+	
+	// Collect all lines
+	lines := collectProcessLines(processes, children, skipPids, pidsToShow, pid, 0, 0, "", isLast,
+		maxUserLen, maxStartLen, maxTimeLen)
+	
+	// Render with optimized tree graphics
+	renderProcessTree(w, lines, processes, termWidth)
 }
 
 
