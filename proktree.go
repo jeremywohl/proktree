@@ -1,10 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"os/user"
 	"sort"
 	"strconv"
@@ -15,17 +14,6 @@ import (
 	"golang.org/x/term"
 )
 
-type Process struct {
-	pid   int
-	ppid  int
-	user  string
-	pcpu  string
-	pmem  string
-	rss   string
-	start string
-	time  string
-	cmd   string
-}
 
 // CLI represents the command-line interface
 type CLI struct {
@@ -40,20 +28,8 @@ type CLI struct {
 var cli CLI
 
 func main() {
-	// Check for -u/--user flag without argument before Kong parses
-	args := os.Args[1:]
-	userFlagWithoutArg := false
-	for i := 0; i < len(args); i++ {
-		if args[i] == "-u" || args[i] == "--user" {
-			// Check if next arg exists and is not another flag
-			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				userFlagWithoutArg = true
-				// Remove the -u/--user flag so Kong doesn't complain
-				args = append(args[:i], args[i+1:]...)
-				i--
-			}
-		}
-	}
+	// Parse command-line arguments
+	args, userFlagWithoutArg := parseUserArgs(os.Args[1:])
 
 	// Parse with modified args
 	os.Args = append([]string{os.Args[0]}, args...)
@@ -73,8 +49,13 @@ func main() {
 		}
 	}
 
-	// Get all processes using ps
-	processes := getAllProcesses()
+	// Get all processes using platform-specific implementation
+	platform := GetPlatform()
+	processes, err := platform.GetProcesses()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
 	
 	// Build process relationships
 	pidToProcess := make(map[int]*Process)
@@ -85,126 +66,29 @@ func main() {
 	proktreePid := -1
 	for i := range processes {
 		p := &processes[i]
-		pidToProcess[p.pid] = p
-		if p.ppid > 0 {
-			pidToChildren[p.ppid] = append(pidToChildren[p.ppid], p.pid)
+		pidToProcess[p.PID] = p
+		if p.PPID > 0 {
+			pidToChildren[p.PPID] = append(pidToChildren[p.PPID], p.PID)
 		}
 		
 		// Mark proktree for skipping
-		if strings.Contains(p.cmd, "proktree") {
-			proktreePid = p.pid
-			skipPids[p.pid] = true
+		if strings.Contains(p.Command, "proktree") {
+			proktreePid = p.PID
+			skipPids[p.PID] = true
 		}
 	}
 	
 	// Skip ps children of proktree
 	if proktreePid > 0 {
 		for _, childPid := range pidToChildren[proktreePid] {
-			if p, ok := pidToProcess[childPid]; ok && strings.HasPrefix(p.cmd, "ps ") {
+			if p, ok := pidToProcess[childPid]; ok && strings.HasPrefix(p.Command, "ps ") {
 				skipPids[childPid] = true
 			}
 		}
 	}
 
 	// Apply filters if any are specified
-	hasFilters := len(cli.PIDs) > 0 || len(cli.Users) > 0 || len(cli.SearchStrings) > 0 || len(cli.SearchStringsCase) > 0
-	var rootPids []int
-	var pidsToShow map[int]bool
-
-	if hasFilters {
-		matchingPids := make(map[int]bool)
-		
-		// Find matching PIDs
-		for _, p := range processes {
-			if skipPids[p.pid] {
-				continue
-			}
-
-			// Check PID filters
-			for _, pidStr := range cli.PIDs {
-				if strconv.Itoa(p.pid) == pidStr {
-					matchingPids[p.pid] = true
-				}
-			}
-
-			// Check user filters
-			for _, user := range cli.Users {
-				if p.user == user {
-					matchingPids[p.pid] = true
-				}
-			}
-
-			// Check string filters
-			for _, str := range cli.SearchStrings {
-				if strings.Contains(p.cmd, str) {
-					matchingPids[p.pid] = true
-				}
-			}
-
-			// Check case-insensitive string filters
-			for _, str := range cli.SearchStringsCase {
-				if strings.Contains(strings.ToLower(p.cmd), strings.ToLower(str)) {
-					matchingPids[p.pid] = true
-				}
-			}
-		}
-
-		// Find all ancestors and descendants
-		pidsToShow = make(map[int]bool)
-		
-		for pid := range matchingPids {
-			// Add the matching PID itself
-			pidsToShow[pid] = true
-			
-			// Add all ancestors
-			current := pid
-			for {
-				if p, ok := pidToProcess[current]; ok && p.ppid > 0 {
-					pidsToShow[p.ppid] = true
-					current = p.ppid
-				} else {
-					break
-				}
-			}
-			
-			// Add all descendants
-			queue := []int{pid}
-			visited := make(map[int]bool)
-			visited[pid] = true
-			
-			for len(queue) > 0 {
-				current := queue[0]
-				queue = queue[1:]
-				
-				for _, child := range pidToChildren[current] {
-					if !visited[child] {
-						pidsToShow[child] = true
-						queue = append(queue, child)
-						visited[child] = true
-					}
-				}
-			}
-		}
-
-		// Always start from true root processes (ppid = 0)
-		// This ensures we get proper tree structure
-		for pid, p := range pidToProcess {
-			if p.ppid == 0 && pidsToShow[pid] {
-				rootPids = append(rootPids, pid)
-			}
-		}
-
-		// Don't filter pidToProcess - we need all processes for tree traversal
-		// Instead, pass pidsToShow to printProcessTree
-	} else {
-		// No filters, show all from root
-		// Find all root processes (those with ppid 0 or no parent in our set)
-		for pid, p := range pidToProcess {
-			if p.ppid == 0 || pidToProcess[p.ppid] == nil {
-				rootPids = append(rootPids, pid)
-			}
-		}
-	}
+	rootPids, pidsToShow := filterProcesses(pidToProcess, pidToChildren, skipPids, cli)
 
 	// Sort root PIDs
 	sort.Ints(rootPids)
@@ -217,8 +101,8 @@ func main() {
 	if cli.ShowFullUser {
 		// Find actual max user length when showing full names
 		for _, p := range pidToProcess {
-			if len(p.user) > maxUserLen {
-				maxUserLen = len(p.user)
+			if len(truncateUser(p.User)) > maxUserLen {
+				maxUserLen = len(truncateUser(p.User))
 			}
 		}
 	}
@@ -226,11 +110,13 @@ func main() {
 	maxTimeLen := 4
 	
 	for _, p := range pidToProcess {
-		if len(p.start) > maxStartLen {
-			maxStartLen = len(p.start)
+		startStr := formatStartTime(p.StartTime)
+		if len(startStr) > maxStartLen {
+			maxStartLen = len(startStr)
 		}
-		if len(strings.TrimSpace(p.time)) > maxTimeLen {
-			maxTimeLen = len(strings.TrimSpace(p.time))
+		timeStr := formatCPUTime(p.CPUTime)
+		if len(strings.TrimSpace(timeStr)) > maxTimeLen {
+			maxTimeLen = len(strings.TrimSpace(timeStr))
 		}
 	}
 	
@@ -257,99 +143,16 @@ func main() {
 	}
 
 	// Print process trees
-	var pidsToShowMap map[int]bool
-	if hasFilters {
-		pidsToShowMap = pidsToShow
-	}
+	// pidsToShow is only set when filters are applied
 	
 	for i, rootPid := range rootPids {
 		isLast := i == len(rootPids)-1
-		printProcessTree(pidToProcess, pidToChildren, skipPids, pidsToShowMap, rootPid, "", isLast, maxUserLen, maxStartLen, maxTimeLen, termWidth)
+		printProcessTree(os.Stdout, pidToProcess, pidToChildren, skipPids, pidsToShow, rootPid, "", isLast, maxUserLen, maxStartLen, maxTimeLen, termWidth)
 	}
 }
 
-func getAllProcesses() []Process {
-	// Get process info including PPID
-	cmd := exec.Command("ps", "-axo", "pid,ppid,user,pcpu,pmem,rss,lstart,time,command")
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to run ps: %v\n", err)
-		os.Exit(1)
-	}
 
-	var processes []Process
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	scanner.Scan() // Skip header
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		
-		if len(fields) < 9 {
-			continue
-		}
-
-		pid, _ := strconv.Atoi(fields[0])
-		ppid, _ := strconv.Atoi(fields[1])
-		user := truncateUser(fields[2])
-		pcpu := fields[3]
-		pmem := fields[4]
-		rssKb, _ := strconv.ParseFloat(fields[5], 64)
-		
-		// Format RSS
-		var rssFmt string
-		if rssKb >= 1048576 {
-			rssFmt = fmt.Sprintf("%.1fG", rssKb/1048576)
-		} else {
-			rssFmt = fmt.Sprintf("%.1fM", rssKb/1024)
-		}
-
-		// Parse lstart and time
-		// lstart format: "Thu Jul 10 15:37:36 2025" (6 fields)
-		// After that comes the TIME field, then COMMAND
-		var startRaw string
-		var timeStr string
-		var cmd string
-		
-		// Find where TIME field starts (after year in lstart)
-		// lstart is 6 fields starting at field 6
-		if len(fields) >= 13 {
-			// Standard format: fields 6-11 are lstart (Thu Jul 10 15:37:36 2025)
-			// field 12 is TIME
-			// field 13+ is COMMAND
-			startRaw = strings.Join(fields[6:11], " ") // Don't include the time field
-			timeStr = fields[11]
-			cmd = strings.Join(fields[12:], " ")
-		} else {
-			// Fallback for unexpected format
-			startRaw = "--"
-			timeStr = "--"
-			cmd = strings.Join(fields[8:], " ")
-		}
-
-		// Format START
-		startFmt := formatStartTime(startRaw)
-
-		// Format TIME
-		timeFmt := formatCPUTime(timeStr)
-
-		processes = append(processes, Process{
-			pid:   pid,
-			ppid:  ppid,
-			user:  user,
-			pcpu:  pcpu,
-			pmem:  pmem,
-			rss:   rssFmt,
-			start: startFmt,
-			time:  timeFmt,
-			cmd:   cmd,
-		})
-	}
-
-	return processes
-}
-
-func printProcessTree(processes map[int]*Process, children map[int][]int, skipPids map[int]bool, 
+func printProcessTree(w io.Writer, processes map[int]*Process, children map[int][]int, skipPids map[int]bool, 
 	pidsToShow map[int]bool, pid int, prefix string, isLast bool, maxUserLen, maxStartLen, maxTimeLen, termWidth int) {
 	
 	if skipPids[pid] {
@@ -407,12 +210,12 @@ func printProcessTree(processes map[int]*Process, children map[int][]int, skipPi
 		if branch != "" {
 			treeStr = treeStr + " "
 		}
-		line := fmt.Sprintf("%7d %-*s %5s %5s %6s  %-*s  %-*s  %s%s",
-			p.pid, maxUserLen, p.user,
-			p.pcpu, p.pmem, p.rss,
-			maxStartLen, p.start,
-			maxTimeLen, p.time,
-			treeStr, p.cmd)
+		line := fmt.Sprintf("%7d %-*s %5.1f %5.1f %6s  %-*s  %-*s  %s%s",
+			p.PID, maxUserLen, truncateUser(p.User),
+			p.CPUPct, p.MemPct, formatRSS(p.RSSKB),
+			maxStartLen, formatStartTime(p.StartTime),
+			maxTimeLen, formatCPUTime(p.CPUTime),
+			treeStr, p.Command)
 
 		// Truncate if too long (UTF-8 aware)
 		// Only truncate if we have a valid terminal width and not showing full commands
@@ -424,7 +227,7 @@ func printProcessTree(processes map[int]*Process, children map[int][]int, skipPi
 			}
 		}
 
-		fmt.Println(line)
+		fmt.Fprintln(w, line)
 	}
 
 	// Sort and print children
@@ -454,73 +257,11 @@ func printProcessTree(processes map[int]*Process, children map[int][]int, skipPi
 		}
 		
 		isLastChild := printed == nonSkippedCount
-		printProcessTree(processes, children, skipPids, pidsToShow, childPid, childPrefix, isLastChild, 
+		printProcessTree(w, processes, children, skipPids, pidsToShow, childPid, childPrefix, isLastChild, 
 			maxUserLen, maxStartLen, maxTimeLen, termWidth)
 	}
 }
 
-func formatStartTime(startRaw string) string {
-	if startRaw == "--" {
-		return "--"
-	}
-
-	// Try various date formats that ps might use
-	// Format from ps: "Thu Jul 10 15:37:36 2025"
-	formats := []string{
-		"Mon Jan _2 15:04:05 2006",  // Single digit day with padding
-		"Mon Jan  2 15:04:05 2006",  // Double space before single digit
-		"Mon Jan 2 15:04:05 2006",   // Single space
-		"Mon Jan 02 15:04:05 2006",  // Zero-padded day
-	}
-	
-	var t time.Time
-	var err error
-	
-	// First try to parse as-is
-	for _, format := range formats {
-		t, err = time.Parse(format, startRaw)
-		if err == nil {
-			break
-		}
-	}
-	
-	if err != nil {
-		return "--"
-	}
-
-	now := time.Now()
-	ageHours := now.Sub(t).Hours()
-
-	if ageHours < 24 {
-		// Less than 24 hours ago: show HH:MM
-		return t.Format("15:04")
-	} else if t.Year() == now.Year() {
-		// Current year: show MonDD
-		return t.Format("Jan02")
-	} else {
-		// Previous years: show YYYY
-		return t.Format("2006")
-	}
-}
-
-func formatCPUTime(timeStr string) string {
-	// Parse time format (can be M:SS.ss or HH:MM.ss)
-	parts := strings.Split(timeStr, ":")
-	if len(parts) == 2 {
-		// Check if it's HH:MM.ss or M:SS.ss
-		if strings.Contains(parts[1], ".") && len(strings.Split(parts[1], ".")[0]) == 2 {
-			// HH:MM.ss format
-			hours, _ := strconv.Atoi(parts[0])
-			if hours >= 24 {
-				return fmt.Sprintf(" %dhrs ", hours)
-			}
-			return fmt.Sprintf("%2s:%s", parts[0], parts[1])
-		}
-		// M:SS.ss format
-		return fmt.Sprintf("%s:%s", parts[0], parts[1])
-	}
-	return timeStr
-}
 
 func centerText(text string, width int) string {
 	padding := width - len(text)
@@ -576,4 +317,186 @@ func getTerminalWidth() int {
 	}
 	
 	return termWidth
+}
+
+// formatRSS formats RSS in KB to a human-readable string
+func formatRSS(rssKB float64) string {
+	if rssKB >= 1048576 {
+		return fmt.Sprintf("%.1fG", rssKB/1048576)
+	}
+	return fmt.Sprintf("%.1fM", rssKB/1024)
+}
+
+// formatStartTime formats start time for display
+func formatStartTime(startTime *time.Time) string {
+	if startTime == nil {
+		return "--"
+	}
+
+	now := time.Now()
+	ageHours := now.Sub(*startTime).Hours()
+
+	if ageHours < 24 {
+		// Less than 24 hours ago: show HH:MM
+		return startTime.Format("15:04")
+	} else if startTime.Year() == now.Year() {
+		// Current year: show MonDD
+		return startTime.Format("Jan02")
+	} else {
+		// Previous years: show YYYY
+		return startTime.Format("2006")
+	}
+}
+
+// formatCPUTime formats CPU time duration for display
+func formatCPUTime(cpuTime time.Duration) string {
+	if cpuTime == 0 {
+		return "      --"
+	}
+
+	totalSeconds := int(cpuTime.Seconds())
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+
+	if hours >= 24 {
+		// Right-justify the hours format
+		return fmt.Sprintf("%5dhrs", hours)
+	} else {
+		// HH:MM:SS format for under 24 hours
+		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+	}
+}
+
+// filterProcesses applies CLI filters and returns root PIDs and PIDs to show
+func filterProcesses(pidToProcess map[int]*Process, pidToChildren map[int][]int, skipPids map[int]bool, filters CLI) ([]int, map[int]bool) {
+	hasFilters := len(filters.PIDs) > 0 || len(filters.Users) > 0 || len(filters.SearchStrings) > 0 || len(filters.SearchStringsCase) > 0
+	var rootPids []int
+	var pidsToShow map[int]bool
+
+	if hasFilters {
+		matchingPids := findMatchingPids(pidToProcess, skipPids, filters)
+		pidsToShow = expandToAncestorsAndDescendants(pidToProcess, pidToChildren, matchingPids)
+
+		// Always start from true root processes (ppid = 0)
+		// This ensures we get proper tree structure
+		for pid, p := range pidToProcess {
+			if p.PPID == 0 && pidsToShow[pid] {
+				rootPids = append(rootPids, pid)
+			}
+		}
+	} else {
+		// No filters, show all from root
+		// Find all root processes (those with ppid 0 or no parent in our set)
+		for pid, p := range pidToProcess {
+			if p.PPID == 0 || pidToProcess[p.PPID] == nil {
+				rootPids = append(rootPids, pid)
+			}
+		}
+	}
+
+	return rootPids, pidsToShow
+}
+
+// findMatchingPids finds PIDs that match the given filters
+func findMatchingPids(pidToProcess map[int]*Process, skipPids map[int]bool, filters CLI) map[int]bool {
+	matchingPids := make(map[int]bool)
+	
+	for _, p := range pidToProcess {
+		if skipPids[p.PID] {
+			continue
+		}
+
+		// Check PID filters
+		for _, pidStr := range filters.PIDs {
+			if strconv.Itoa(p.PID) == pidStr {
+				matchingPids[p.PID] = true
+			}
+		}
+
+		// Check user filters
+		for _, user := range filters.Users {
+			if p.User == user {
+				matchingPids[p.PID] = true
+			}
+		}
+
+		// Check string filters
+		for _, str := range filters.SearchStrings {
+			if strings.Contains(p.Command, str) {
+				matchingPids[p.PID] = true
+			}
+		}
+
+		// Check case-insensitive string filters
+		for _, str := range filters.SearchStringsCase {
+			if strings.Contains(strings.ToLower(p.Command), strings.ToLower(str)) {
+				matchingPids[p.PID] = true
+			}
+		}
+	}
+	
+	return matchingPids
+}
+
+// expandToAncestorsAndDescendants expands matching PIDs to include all ancestors and descendants
+func expandToAncestorsAndDescendants(pidToProcess map[int]*Process, pidToChildren map[int][]int, matchingPids map[int]bool) map[int]bool {
+	pidsToShow := make(map[int]bool)
+	
+	for pid := range matchingPids {
+		// Add the matching PID itself
+		pidsToShow[pid] = true
+		
+		// Add all ancestors
+		current := pid
+		for {
+			if p, ok := pidToProcess[current]; ok && p.PPID > 0 {
+				pidsToShow[p.PPID] = true
+				current = p.PPID
+			} else {
+				break
+			}
+		}
+		
+		// Add all descendants
+		queue := []int{pid}
+		visited := make(map[int]bool)
+		visited[pid] = true
+		
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+			
+			for _, child := range pidToChildren[current] {
+				if !visited[child] {
+					pidsToShow[child] = true
+					queue = append(queue, child)
+					visited[child] = true
+				}
+			}
+		}
+	}
+	
+	return pidsToShow
+}
+
+// parseUserArgs processes command-line arguments to handle -u/--user flag without argument
+func parseUserArgs(args []string) ([]string, bool) {
+	userFlagWithoutArg := false
+	processedArgs := make([]string, len(args))
+	copy(processedArgs, args)
+	
+	for i := 0; i < len(processedArgs); i++ {
+		if processedArgs[i] == "-u" || processedArgs[i] == "--user" {
+			// Check if next arg exists and is not another flag
+			if i+1 >= len(processedArgs) || strings.HasPrefix(processedArgs[i+1], "-") {
+				userFlagWithoutArg = true
+				// Remove the -u/--user flag so Kong doesn't complain
+				processedArgs = append(processedArgs[:i], processedArgs[i+1:]...)
+				i--
+			}
+		}
+	}
+	
+	return processedArgs, userFlagWithoutArg
 }

@@ -2,54 +2,45 @@ package main
 
 import (
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestFormatStartTime(t *testing.T) {
+	now := time.Now()
 	tests := []struct {
 		name     string
-		input    string
+		input    *time.Time
 		expected string
-		setup    func()
 	}{
 		{
-			name:     "invalid input",
-			input:    "--",
-			expected: "--",
-		},
-		{
-			name:     "malformed date",
-			input:    "not a date",
+			name:     "nil input",
+			input:    nil,
 			expected: "--",
 		},
 		{
 			name:     "recent time (less than 24 hours)",
-			input:    time.Now().Add(-2 * time.Hour).Format("Mon Jan _2 15:04:05 2006"),
-			expected: time.Now().Add(-2 * time.Hour).Format("15:04"),
+			input:    func() *time.Time { t := now.Add(-2 * time.Hour); return &t }(),
+			expected: now.Add(-2 * time.Hour).Format("15:04"),
 		},
 		{
 			name:     "current year",
-			input:    time.Now().Add(-48 * time.Hour).Format("Mon Jan _2 15:04:05 2006"),
-			expected: time.Now().Add(-48 * time.Hour).Format("Jan02"),
+			input:    func() *time.Time { t := now.Add(-48 * time.Hour); return &t }(),
+			expected: now.Add(-48 * time.Hour).Format("Jan02"),
 		},
 		{
 			name:     "previous year",
-			input:    time.Now().Add(-400 * 24 * time.Hour).Format("Mon Jan _2 15:04:05 2006"),
-			expected: time.Now().Add(-400 * 24 * time.Hour).Format("2006"),
+			input:    func() *time.Time { t := now.Add(-400 * 24 * time.Hour); return &t }(),
+			expected: now.Add(-400 * 24 * time.Hour).Format("2006"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.setup != nil {
-				tt.setup()
-			}
 			result := formatStartTime(tt.input)
 			if result != tt.expected {
-				t.Errorf("formatStartTime(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("formatStartTime(%v) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -58,28 +49,28 @@ func TestFormatStartTime(t *testing.T) {
 func TestFormatCPUTime(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    string
+		input    time.Duration
 		expected string
 	}{
 		{
+			name:     "zero duration",
+			input:    0,
+			expected: "      --",
+		},
+		{
 			name:     "minutes and seconds",
-			input:    "1:23.45",
-			expected: " 1:23.45",
+			input:    1*time.Minute + 23*time.Second + 450*time.Millisecond,
+			expected: "00:01:23",
 		},
 		{
 			name:     "hours and minutes",
-			input:    "12:34.56",
-			expected: "12:34.56",
+			input:    12*time.Hour + 34*time.Minute + 56*time.Second,
+			expected: "12:34:56",
 		},
 		{
 			name:     "24+ hours",
-			input:    "25:00.00",
-			expected: " 25hrs ",
-		},
-		{
-			name:     "plain string",
-			input:    "0.12",
-			expected: "0.12",
+			input:    25 * time.Hour,
+			expected: "   25hrs",
 		},
 	}
 
@@ -87,7 +78,7 @@ func TestFormatCPUTime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := formatCPUTime(tt.input)
 			if result != tt.expected {
-				t.Errorf("formatCPUTime(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("formatCPUTime(%v) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -249,12 +240,12 @@ func TestGetTerminalWidth(t *testing.T) {
 
 func TestProcessFiltering(t *testing.T) {
 	processes := map[int]*Process{
-		1: {pid: 1, ppid: 0, user: "root", cmd: "init"},
-		2: {pid: 2, ppid: 1, user: "root", cmd: "kernel_task"},
-		3: {pid: 3, ppid: 1, user: "daemon", cmd: "systemd"},
-		4: {pid: 4, ppid: 3, user: "daemon", cmd: "cron"},
-		5: {pid: 5, ppid: 3, user: "user1", cmd: "bash"},
-		6: {pid: 6, ppid: 5, user: "user1", cmd: "vim test.txt"},
+		1: {PID: 1, PPID: 0, User: "root", Command: "init"},
+		2: {PID: 2, PPID: 1, User: "root", Command: "kernel_task"},
+		3: {PID: 3, PPID: 1, User: "daemon", Command: "systemd"},
+		4: {PID: 4, PPID: 3, User: "daemon", Command: "cron"},
+		5: {PID: 5, PPID: 3, User: "user1", Command: "bash"},
+		6: {PID: 6, PPID: 5, User: "user1", Command: "vim test.txt"},
 	}
 
 	pidToChildren := map[int][]int{
@@ -267,6 +258,7 @@ func TestProcessFiltering(t *testing.T) {
 		name             string
 		cli              CLI
 		expectedPidsShow map[int]bool
+		expectedRootPids []int
 	}{
 		{
 			name: "filter by PID",
@@ -279,6 +271,7 @@ func TestProcessFiltering(t *testing.T) {
 				5: true, // matched
 				6: true, // descendant
 			},
+			expectedRootPids: []int{1},
 		},
 		{
 			name: "filter by user",
@@ -288,8 +281,11 @@ func TestProcessFiltering(t *testing.T) {
 			expectedPidsShow: map[int]bool{
 				1: true, // ancestor
 				3: true, // matched
-				4: true, // matched
+				4: true, // matched (child of 3, also daemon)
+				5: true, // descendant of matched
+				6: true, // descendant of matched
 			},
+			expectedRootPids: []int{1},
 		},
 		{
 			name: "filter by string",
@@ -302,6 +298,7 @@ func TestProcessFiltering(t *testing.T) {
 				5: true, // ancestor
 				6: true, // matched
 			},
+			expectedRootPids: []int{1},
 		},
 		{
 			name: "filter by case-insensitive string",
@@ -314,6 +311,7 @@ func TestProcessFiltering(t *testing.T) {
 				5: true, // ancestor
 				6: true, // matched
 			},
+			expectedRootPids: []int{1},
 		},
 		{
 			name: "multiple filters",
@@ -327,155 +325,398 @@ func TestProcessFiltering(t *testing.T) {
 				5: true, // matched both
 				6: true, // descendant
 			},
+			expectedRootPids: []int{1},
+		},
+		{
+			name:             "no filters",
+			cli:              CLI{},
+			expectedPidsShow: nil,      // No filtering, so pidsToShow should be nil
+			expectedRootPids: []int{1}, // Root process
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			originalCLI := cli
-			cli = tt.cli
-			defer func() { cli = originalCLI }()
+			skipPids := make(map[int]bool)
+			rootPids, pidsToShow := filterProcesses(processes, pidToChildren, skipPids, tt.cli)
 
-			matchingPids := make(map[int]bool)
-
-			for _, p := range processes {
-				for _, pidStr := range cli.PIDs {
-					if pidStr == strconv.Itoa(p.pid) {
-						matchingPids[p.pid] = true
-					}
-				}
-
-				for _, user := range cli.Users {
-					if p.user == user {
-						matchingPids[p.pid] = true
-					}
-				}
-
-				for _, str := range cli.SearchStrings {
-					if strings.Contains(p.cmd, str) {
-						matchingPids[p.pid] = true
-					}
-				}
-
-				for _, str := range cli.SearchStringsCase {
-					if strings.Contains(strings.ToLower(p.cmd), strings.ToLower(str)) {
-						matchingPids[p.pid] = true
-					}
-				}
+			// Check root PIDs
+			if !equalIntSlices(rootPids, tt.expectedRootPids) {
+				t.Errorf("rootPids = %v, want %v", rootPids, tt.expectedRootPids)
 			}
 
-			pidsToShow := make(map[int]bool)
-			for pid := range matchingPids {
-				pidsToShow[pid] = true
-
-				current := pid
-				for {
-					if p, ok := processes[current]; ok && p.ppid > 0 {
-						pidsToShow[p.ppid] = true
-						current = p.ppid
-					} else {
-						break
+			// Check PIDs to show
+			if tt.expectedPidsShow == nil {
+				if pidsToShow != nil {
+					t.Errorf("pidsToShow = %v, want nil", pidsToShow)
+				}
+			} else {
+				for pid, expected := range tt.expectedPidsShow {
+					if pidsToShow[pid] != expected {
+						t.Errorf("PID %d: got %v, want %v", pid, pidsToShow[pid], expected)
 					}
 				}
-
-				queue := []int{pid}
-				visited := make(map[int]bool)
-				visited[pid] = true
-
-				for len(queue) > 0 {
-					current := queue[0]
-					queue = queue[1:]
-
-					for _, child := range pidToChildren[current] {
-						if !visited[child] {
-							pidsToShow[child] = true
-							queue = append(queue, child)
-							visited[child] = true
-						}
+				// Also check that no unexpected PIDs are included
+				for pid, included := range pidsToShow {
+					if included && !tt.expectedPidsShow[pid] {
+						t.Errorf("PID %d included but not expected", pid)
 					}
-				}
-			}
-
-			for pid, expected := range tt.expectedPidsShow {
-				if pidsToShow[pid] != expected {
-					t.Errorf("PID %d: got %v, want %v", pid, pidsToShow[pid], expected)
 				}
 			}
 		})
 	}
 }
 
+// Helper function to compare int slices
+func equalIntSlices(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestCommandLineParsing(t *testing.T) {
 	tests := []struct {
 		name            string
 		args            []string
-		expectedUsers   []string
+		expectedArgs    []string
 		expectUserAdded bool
 	}{
 		{
 			name:            "no user flag",
 			args:            []string{},
-			expectedUsers:   []string{},
+			expectedArgs:    []string{},
 			expectUserAdded: false,
 		},
 		{
 			name:            "user flag with argument",
 			args:            []string{"-u", "testuser"},
-			expectedUsers:   []string{"testuser"},
+			expectedArgs:    []string{"-u", "testuser"},
 			expectUserAdded: false,
 		},
 		{
 			name:            "user flag without argument at end",
 			args:            []string{"-u"},
-			expectedUsers:   []string{},
+			expectedArgs:    []string{},
 			expectUserAdded: true,
 		},
 		{
 			name:            "user flag without argument before another flag",
 			args:            []string{"-u", "--long-users"},
-			expectedUsers:   []string{},
+			expectedArgs:    []string{"--long-users"},
 			expectUserAdded: true,
 		},
 		{
 			name:            "multiple user flags",
 			args:            []string{"-u", "user1", "-u", "user2"},
-			expectedUsers:   []string{"user1", "user2"},
+			expectedArgs:    []string{"-u", "user1", "-u", "user2"},
 			expectUserAdded: false,
 		},
 		{
 			name:            "long form --user",
 			args:            []string{"--user", "testuser"},
-			expectedUsers:   []string{"testuser"},
+			expectedArgs:    []string{"--user", "testuser"},
 			expectUserAdded: false,
 		},
 		{
 			name:            "long form --user without argument",
 			args:            []string{"--user"},
-			expectedUsers:   []string{},
+			expectedArgs:    []string{},
+			expectUserAdded: true,
+		},
+		{
+			name:            "mixed flags",
+			args:            []string{"-p", "123", "-u", "--long-commands", "-s", "test"},
+			expectedArgs:    []string{"-p", "123", "--long-commands", "-s", "test"},
 			expectUserAdded: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// We can't easily test the main function's argument parsing
-			// without refactoring, so we'll test the logic separately
-			
-			userFlagWithoutArg := false
-			args := append([]string{}, tt.args...)
-			
-			for i := 0; i < len(args); i++ {
-				if args[i] == "-u" || args[i] == "--user" {
-					if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-						userFlagWithoutArg = true
-						args = append(args[:i], args[i+1:]...)
-						i--
-					}
-				}
-			}
+			args, userFlagWithoutArg := parseUserArgs(tt.args)
 
 			if userFlagWithoutArg != tt.expectUserAdded {
 				t.Errorf("userFlagWithoutArg = %v, want %v", userFlagWithoutArg, tt.expectUserAdded)
+			}
+
+			if !equalStringSlices(args, tt.expectedArgs) {
+				t.Errorf("args = %v, want %v", args, tt.expectedArgs)
+			}
+		})
+	}
+}
+
+// Helper function to compare string slices
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestProcessTreeOutput(t *testing.T) {
+	// Create test processes with static times
+	jul10 := time.Date(2025, 7, 10, 0, 0, 0, 0, time.UTC)     // Current year -> "Jul10"
+	jun01 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)      // Current year -> "Jun01"
+	recent1 := time.Date(2025, 7, 13, 13, 10, 0, 0, time.UTC) // Within 24h -> "13:10"
+	recent2 := time.Date(2025, 7, 13, 14, 40, 0, 0, time.UTC) // Within 24h -> "14:40"
+	lastYear := time.Date(2023, 12, 25, 0, 0, 0, 0, time.UTC) // Previous year -> "2023"
+
+	processes := map[int]*Process{
+		1: {
+			PID:       1,
+			PPID:      0,
+			User:      "root",
+			CPUPct:    1.5,
+			MemPct:    0.8,
+			RSSKB:     31641.6, // 30.9M
+			StartTime: &jul10,
+			CPUTime:   28*time.Minute + 35*time.Second,
+			Command:   "/sbin/launchd",
+		},
+		100: {
+			PID:       100,
+			PPID:      1,
+			User:      "daemon",
+			CPUPct:    0.0,
+			MemPct:    0.1,
+			RSSKB:     10240.0, // 10.0M
+			StartTime: &jul10,
+			CPUTime:   0,
+			Command:   "/usr/sbin/sshd",
+		},
+		200: {
+			PID:       200,
+			PPID:      100,
+			User:      "alice",
+			CPUPct:    25.3,
+			MemPct:    15.2,
+			RSSKB:     1048576.0, // 1.0G
+			StartTime: nil,
+			CPUTime:   25 * time.Hour,
+			Command:   "sshd: alice [priv]",
+		},
+		201: {
+			PID:       201,
+			PPID:      200,
+			User:      "alice",
+			CPUPct:    0.1,
+			MemPct:    0.5,
+			RSSKB:     5120.0, // 5.0M
+			StartTime: &recent1,
+			CPUTime:   2*time.Minute + 15*time.Second,
+			Command:   "-bash",
+		},
+		300: {
+			PID:       300,
+			PPID:      1,
+			User:      "postgres",
+			CPUPct:    5.2,
+			MemPct:    12.3,
+			RSSKB:     524288.0, // 512M
+			StartTime: &jun01,
+			CPUTime:   125 * time.Hour,
+			Command:   "/usr/bin/postgres -D /var/lib/postgresql",
+		},
+		301: {
+			PID:       301,
+			PPID:      300,
+			User:      "postgres",
+			CPUPct:    0.5,
+			MemPct:    2.1,
+			RSSKB:     102400.0, // 100M
+			StartTime: &jun01,
+			CPUTime:   45*time.Minute + 30*time.Second,
+			Command:   "postgres: writer process",
+		},
+		302: {
+			PID:       302,
+			PPID:      300,
+			User:      "postgres",
+			CPUPct:    0.3,
+			MemPct:    1.8,
+			RSSKB:     81920.0, // 80M
+			StartTime: &jun01,
+			CPUTime:   22 * time.Minute,
+			Command:   "postgres: checkpointer",
+		},
+		400: {
+			PID:       400,
+			PPID:      1,
+			User:      "bob",
+			CPUPct:    15.7,
+			MemPct:    8.9,
+			RSSKB:     204800.0, // 200M
+			StartTime: &recent2,
+			CPUTime:   5*time.Minute + 45*time.Second,
+			Command:   "node server.js",
+		},
+		500: {
+			PID:       500,
+			PPID:      1,
+			User:      "verylongusername",
+			CPUPct:    0.0,
+			MemPct:    0.1,
+			RSSKB:     2048.0, // 2.0M
+			StartTime: &lastYear,
+			CPUTime:   0,
+			Command:   "/usr/local/bin/custom-daemon",
+		},
+	}
+
+	pidToChildren := map[int][]int{
+		1:   {100, 300, 400, 500},
+		100: {200},
+		200: {201},
+		300: {301, 302},
+	}
+
+	skipPids := make(map[int]bool)
+
+	tests := []struct {
+		name         string
+		cli          CLI
+		maxUserLen   int
+		showFullUser bool
+		expected     []string // Expected output lines
+	}{
+		{
+			name:       "no filter - show all",
+			cli:        CLI{},
+			maxUserLen: 10,
+			expected: []string{
+				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
+				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
+				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
+				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   ├─┬─ /usr/bin/postgres -D /var/lib/postgresql",
+				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30   │ ├─── postgres: writer process",
+				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00   │ └─── postgres: checkpointer",
+				"    400 bob         15.7   8.9 200.0M  14:40  00:05:45   ├─── node server.js",
+				"    500 verylon...   0.0   0.1   2.0M  2023         --   └─── /usr/local/bin/custom-daemon",
+			},
+		},
+		{
+			name:       "filter by PID - shows ancestors and descendants",
+			cli:        CLI{PIDs: []string{"200"}},
+			maxUserLen: 10,
+			expected: []string{
+				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
+				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
+				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
+			},
+		},
+		{
+			name:       "filter by user alice",
+			cli:        CLI{Users: []string{"alice"}},
+			maxUserLen: 10,
+			expected: []string{
+				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
+				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
+				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
+			},
+		},
+		{
+			name:       "filter by user postgres",
+			cli:        CLI{Users: []string{"postgres"}},
+			maxUserLen: 10,
+			expected: []string{
+				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   ├─┬─ /usr/bin/postgres -D /var/lib/postgresql",
+				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30   │ ├─── postgres: writer process",
+				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00   │ └─── postgres: checkpointer",
+			},
+		},
+		{
+			name:       "filter by command postgres",
+			cli:        CLI{SearchStrings: []string{"postgres"}},
+			maxUserLen: 10,
+			expected: []string{
+				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   ├─┬─ /usr/bin/postgres -D /var/lib/postgresql",
+				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30   │ ├─── postgres: writer process",
+				"    302 postgres     0.3   1.8  80.0M  Jun01  00:22:00   │ └─── postgres: checkpointer",
+			},
+		},
+		{
+			name:       "filter by multiple users",
+			cli:        CLI{Users: []string{"alice", "bob"}},
+			maxUserLen: 10,
+			expected: []string{
+				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
+				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
+				"    201 alice        0.1   0.5   5.0M  13:10  00:02:15   │   └─── -bash",
+				"    400 bob         15.7   8.9 200.0M  14:40  00:05:45   ├─── node server.js",
+			},
+		},
+		{
+			name:         "full username display",
+			cli:          CLI{Users: []string{"verylongusername"}},
+			maxUserLen:   16,
+			showFullUser: true,
+			expected: []string{
+				"      1 root               1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
+				"    500 verylongusername   0.0   0.1   2.0M  2023         --   └─── /usr/local/bin/custom-daemon",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore cli
+			originalCLI := cli
+			cli.ShowFullUser = tt.showFullUser
+			defer func() { cli = originalCLI }()
+
+			// Apply filters using the actual filtering logic
+			rootPids, pidsToShow := filterProcesses(processes, pidToChildren, skipPids, tt.cli)
+
+			// Should have one root PID
+			if len(rootPids) != 1 || rootPids[0] != 1 {
+				t.Errorf("Expected root PID 1, got %v", rootPids)
+			}
+
+			// Capture output
+			var buf strings.Builder
+			printProcessTree(&buf, processes, pidToChildren, skipPids, pidsToShow,
+				1, "", true, tt.maxUserLen, 5, 8, 0)
+
+			// Get lines from output
+			output := strings.TrimRight(buf.String(), "\n")
+			var lines []string
+			if output != "" {
+				lines = strings.Split(output, "\n")
+			}
+
+			// Compare output
+			if len(lines) != len(tt.expected) {
+				t.Errorf("Expected %d lines, got %d", len(tt.expected), len(lines))
+				t.Logf("Got:\n%s", strings.Join(lines, "\n"))
+				return
+			}
+
+			for i, expected := range tt.expected {
+				if i >= len(lines) {
+					t.Errorf("Missing line %d: expected %q", i, expected)
+					continue
+				}
+				if lines[i] != expected {
+					t.Errorf("Line %d mismatch:\ngot:      %q\nexpected: %q", i, lines[i], expected)
+				}
 			}
 		})
 	}

@@ -2,7 +2,9 @@
 
 Print your processes as a nice tree. Filter by process id, user, and command substring.
 
-Works on MacOS (Mac lacks native tree printing in `ps`). Linux compatibility incoming.
+Works on macOS and Linux.
+
+macOS, particularly, lacks a native tree display, like Linux's `ps f`.
 
 ## Sample output
 
@@ -20,8 +22,7 @@ Works on MacOS (Mac lacks native tree printing in `ps`). Linux compatibility inc
 
 ## Installation
 
-### Pre-compiled Binary
-
+### Via Go
 ```bash
 go install github.com/jeremywohl/proktree@latest
 ```
@@ -81,9 +82,9 @@ proktree --long-users --long-commands
   - MonDD for processes started this calendar year
   - YYYY for processes started in previous calendar years
 - **TIME**: Cumulative CPU time
-  - M:SS.ss for under 1 hour
-  - HH:MM.ss for under 24 hours
-  - NNhrs for 24+ hours
+  - -- for zero CPU time
+  - HH:MM:SS for under 24 hours
+  - XYhrs for 24+ hours (right-justified)
 - **COMMAND**: Process tree visualization and command line
 
 ## Examples
