@@ -134,8 +134,6 @@ func TestCenterText(t *testing.T) {
 }
 
 func TestTruncateUser(t *testing.T) {
-	originalCLI := cli
-	defer func() { cli = originalCLI }()
 
 	tests := []struct {
 		name         string
@@ -177,8 +175,10 @@ func TestTruncateUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cli.ShowFullUser = tt.showFullUser
-			result := truncateUser(tt.user)
+			pt := &Proktree{
+				cli: CLI{ShowFullUser: tt.showFullUser},
+			}
+			result := pt.truncateUser(tt.user)
 			if result != tt.expected {
 				t.Errorf("truncateUser(%q) = %q, want %q", tt.user, result, tt.expected)
 			}
@@ -338,7 +338,13 @@ func TestProcessFiltering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			skipPids := make(map[int]bool)
-			rootPids, pidsToShow := filterProcesses(processes, pidToChildren, skipPids, tt.cli)
+			pt := &Proktree{
+				processes: processes,
+				children:  pidToChildren,
+				skipPids:  skipPids,
+				cli:       tt.cli,
+			}
+			rootPids, pidsToShow := pt.filterProcesses()
 
 			// Check root PIDs
 			if !equalIntSlices(rootPids, tt.expectedRootPids) {
@@ -596,6 +602,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			cli:        CLI{},
 			maxUserLen: 10,
 			expected: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
 				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
@@ -612,6 +620,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			cli:        CLI{PIDs: []string{"200"}},
 			maxUserLen: 10,
 			expected: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    100 daemon       0.0   0.1  10.0M  Jul10        --   └─┬─ /usr/sbin/sshd",
 				"    200 alice       25.3  15.2   1.0G  --        25hrs     └─┬─ sshd: alice [priv]",
@@ -623,6 +633,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			cli:        CLI{Users: []string{"alice"}},
 			maxUserLen: 10,
 			expected: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    100 daemon       0.0   0.1  10.0M  Jul10        --   └─┬─ /usr/sbin/sshd",
 				"    200 alice       25.3  15.2   1.0G  --        25hrs     └─┬─ sshd: alice [priv]",
@@ -634,6 +646,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			cli:        CLI{Users: []string{"postgres"}},
 			maxUserLen: 10,
 			expected: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   └─┬─ /usr/bin/postgres -D /var/lib/postgresql",
 				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30     ├─── postgres: writer process",
@@ -645,6 +659,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			cli:        CLI{SearchStrings: []string{"postgres"}},
 			maxUserLen: 10,
 			expected: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    300 postgres     5.2  12.3 512.0M  Jun01    125hrs   └─┬─ /usr/bin/postgres -D /var/lib/postgresql",
 				"    301 postgres     0.5   2.1 100.0M  Jun01  00:45:30     ├─── postgres: writer process",
@@ -656,6 +672,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			cli:        CLI{Users: []string{"alice", "bob"}},
 			maxUserLen: 10,
 			expected: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    100 daemon       0.0   0.1  10.0M  Jul10        --   ├─┬─ /usr/sbin/sshd",
 				"    200 alice       25.3  15.2   1.0G  --        25hrs   │ └─┬─ sshd: alice [priv]",
@@ -669,6 +687,8 @@ func TestProcessTreeOutput(t *testing.T) {
 			maxUserLen:   16,
 			showFullUser: true,
 			expected: []string{
+				"   PID        USER        %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root               1.5   0.8  30.9M  Jul10  00:28:35  ─┬─ /sbin/launchd",
 				"    500 verylongusername   0.0   0.1   2.0M  2023         --   └─── /usr/local/bin/custom-daemon",
 			},
@@ -677,13 +697,33 @@ func TestProcessTreeOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore cli
-			originalCLI := cli
-			cli.ShowFullUser = tt.showFullUser
-			defer func() { cli = originalCLI }()
+
+			// Create test CLI with showFullUser setting
+			testCLI := tt.cli
+			testCLI.ShowFullUser = tt.showFullUser
+
+			// Create a test Proktree instance
+			pt := &Proktree{
+				processes:   processes,
+				children:    pidToChildren,
+				skipPids:    skipPids,
+				maxStartLen: 5,
+				maxTimeLen:  8,
+				termWidth:   0,
+				cli:         testCLI,
+			}
+
+			// Calculate column widths properly
+			pt.calculateColumnWidths()
+
+			// Override if test specifies a specific maxUserLen
+			if tt.maxUserLen > 0 {
+				pt.maxUserLen = tt.maxUserLen
+			}
 
 			// Apply filters using the actual filtering logic
-			rootPids, pidsToShow := filterProcesses(processes, pidToChildren, skipPids, tt.cli)
+			rootPids, pidsToShow := pt.filterProcesses()
+			pt.pidsToShow = pidsToShow
 
 			// Should have one root PID
 			if len(rootPids) != 1 || rootPids[0] != 1 {
@@ -692,8 +732,8 @@ func TestProcessTreeOutput(t *testing.T) {
 
 			// Capture output
 			var buf strings.Builder
-			printProcessTree(&buf, processes, pidToChildren, skipPids, pidsToShow,
-				1, "", true, tt.maxUserLen, 5, 8, 0)
+			pt.printHeader(&buf)
+			pt.printProcessTree(&buf, 1, true)
 
 			// Get lines from output
 			output := strings.TrimRight(buf.String(), "\n")
