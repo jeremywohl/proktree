@@ -19,6 +19,9 @@ clean:
 	rm -f proktree
 	rm -fr proktree-*
 
+fmt:
+	go fmt .
+
 run:
 	go build -o proktree -v
 	./proktree

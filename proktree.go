@@ -14,7 +14,6 @@ import (
 	"golang.org/x/term"
 )
 
-
 // CLI represents the command-line interface
 type CLI struct {
 	PIDs              []string `short:"p" name:"pid" help:"Show only parents and descendants of process PID (can be specified multiple times)"`
@@ -56,12 +55,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Build process relationships
 	pidToProcess := make(map[int]*Process)
 	pidToChildren := make(map[int][]int)
 	skipPids := make(map[int]bool)
-	
+
 	// Find proktree process to skip it and its children
 	proktreePid := -1
 	for i := range processes {
@@ -70,14 +69,14 @@ func main() {
 		if p.PPID > 0 {
 			pidToChildren[p.PPID] = append(pidToChildren[p.PPID], p.PID)
 		}
-		
+
 		// Mark proktree for skipping
 		if strings.Contains(p.Command, "proktree") {
 			proktreePid = p.PID
 			skipPids[p.PID] = true
 		}
 	}
-	
+
 	// Skip ps children of proktree
 	if proktreePid > 0 {
 		for _, childPid := range pidToChildren[proktreePid] {
@@ -108,7 +107,7 @@ func main() {
 	}
 	maxStartLen := 5
 	maxTimeLen := 4
-	
+
 	for _, p := range pidToProcess {
 		startStr := formatStartTime(p.StartTime)
 		if len(startStr) > maxStartLen {
@@ -119,13 +118,13 @@ func main() {
 			maxTimeLen = len(strings.TrimSpace(timeStr))
 		}
 	}
-	
+
 	// Ensure minimum width for TIME column
 	if maxTimeLen < 8 {
 		maxTimeLen = 8
 	}
 
-	// Print header  
+	// Print header
 	header := fmt.Sprintf("  %5s %-*s %5s %5s %5s   %-*s  %-*s  %s",
 		centerText("PID", 5), maxUserLen, centerText("USER", maxUserLen), "%CPU", "%MEM", "RSS",
 		maxStartLen, "START",
@@ -144,30 +143,29 @@ func main() {
 
 	// Print process trees
 	// pidsToShow is only set when filters are applied
-	
+
 	for i, rootPid := range rootPids {
 		isLast := i == len(rootPids)-1
 		printProcessTree(os.Stdout, pidToProcess, pidToChildren, skipPids, pidsToShow, rootPid, "", isLast, maxUserLen, maxStartLen, maxTimeLen, termWidth)
 	}
 }
 
-
 // processLine represents a buffered output line with tree metadata
 type processLine struct {
-	pid        int
-	parentPid  int
-	depth      int
-	isLast     bool
+	pid                int
+	parentPid          int
+	depth              int
+	isLast             bool
 	hasVisibleChildren bool
-	content    string  // The formatted process info without tree graphics
-	prefix     string  // The full tree prefix including indentation
+	content            string // The formatted process info without tree graphics
+	prefix             string // The full tree prefix including indentation
 }
 
 // collectProcessLines collects all process lines that should be displayed
 func collectProcessLines(processes map[int]*Process, children map[int][]int, skipPids map[int]bool,
 	pidsToShow map[int]bool, pid int, parentPid int, depth int, prefix string, isLast bool,
 	maxUserLen, maxStartLen, maxTimeLen int) []processLine {
-	
+
 	if skipPids[pid] {
 		return nil
 	}
@@ -176,7 +174,7 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 	if !ok {
 		return nil
 	}
-	
+
 	// Check if we should display this process
 	shouldDisplay := pidsToShow == nil || pidsToShow[pid]
 	if !shouldDisplay {
@@ -184,20 +182,20 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 		var lines []processLine
 		childPids := children[pid]
 		sort.Ints(childPids)
-		
+
 		visibleChildren := 0
 		for _, childPid := range childPids {
 			if !skipPids[childPid] && (pidsToShow == nil || pidsToShow[childPid]) {
 				visibleChildren++
 			}
 		}
-		
+
 		childIdx := 0
 		for _, childPid := range childPids {
 			if skipPids[childPid] {
 				continue
 			}
-			
+
 			// Determine child prefix based on whether THIS process is last
 			var childPrefix string
 			if depth == 0 {
@@ -210,7 +208,7 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 				// If this process is not last, children get a vertical line
 				childPrefix = prefix + "│ "
 			}
-			
+
 			if pidsToShow != nil && !pidsToShow[childPid] {
 				// Need to check if this child has visible descendants
 				childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
@@ -220,7 +218,7 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 				}
 				continue
 			}
-			
+
 			childIdx++
 			isLastChild := childIdx == visibleChildren
 			childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
@@ -261,20 +259,20 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 
 	// Collect children
 	sort.Ints(childPids)
-	
+
 	visibleChildren := 0
 	for _, childPid := range childPids {
 		if !skipPids[childPid] && (pidsToShow == nil || pidsToShow[childPid]) {
 			visibleChildren++
 		}
 	}
-	
+
 	childIdx := 0
 	for _, childPid := range childPids {
 		if skipPids[childPid] {
 			continue
 		}
-		
+
 		// Determine child prefix based on whether THIS process is last
 		var childPrefix string
 		if depth == 0 {
@@ -287,7 +285,7 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 			// If this process is not last, children get a vertical line
 			childPrefix = prefix + "│ "
 		}
-		
+
 		if pidsToShow != nil && !pidsToShow[childPid] {
 			// Need to check if this child has visible descendants
 			childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
@@ -297,7 +295,7 @@ func collectProcessLines(processes map[int]*Process, children map[int][]int, ski
 			}
 			continue
 		}
-		
+
 		childIdx++
 		isLastChild := childIdx == visibleChildren
 		childLines := collectProcessLines(processes, children, skipPids, pidsToShow,
@@ -336,7 +334,7 @@ func renderProcessTree(w io.Writer, lines []processLine, processes map[int]*Proc
 
 		// Get the command
 		p := processes[line.pid]
-		
+
 		// Build the full line with proper tree alignment
 		treeStr := line.prefix + branch
 		// Root needs 2 spaces, others need 3 for proper alignment
@@ -358,17 +356,16 @@ func renderProcessTree(w io.Writer, lines []processLine, processes map[int]*Proc
 	}
 }
 
-func printProcessTree(w io.Writer, processes map[int]*Process, children map[int][]int, skipPids map[int]bool, 
+func printProcessTree(w io.Writer, processes map[int]*Process, children map[int][]int, skipPids map[int]bool,
 	pidsToShow map[int]bool, pid int, prefix string, isLast bool, maxUserLen, maxStartLen, maxTimeLen, termWidth int) {
-	
+
 	// Collect all lines
 	lines := collectProcessLines(processes, children, skipPids, pidsToShow, pid, 0, 0, "", isLast,
 		maxUserLen, maxStartLen, maxTimeLen)
-	
+
 	// Render with optimized tree graphics
 	renderProcessTree(w, lines, processes, termWidth)
 }
-
 
 func centerText(text string, width int) string {
 	padding := width - len(text)
@@ -392,7 +389,7 @@ func truncateUser(user string) string {
 
 func getTerminalWidth() int {
 	termWidth := 80
-	
+
 	// First check COLUMNS environment variable
 	if cols := os.Getenv("COLUMNS"); cols != "" {
 		var w int
@@ -401,7 +398,7 @@ func getTerminalWidth() int {
 			return termWidth
 		}
 	}
-	
+
 	// Try to get terminal size from stdout
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
@@ -409,7 +406,7 @@ func getTerminalWidth() int {
 			return termWidth
 		}
 	}
-	
+
 	// If stdout is not a terminal (e.g., piped), try stdin
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		if width, _, err := term.GetSize(int(os.Stdin.Fd())); err == nil {
@@ -417,12 +414,12 @@ func getTerminalWidth() int {
 			return termWidth
 		}
 	}
-	
+
 	// If neither stdout nor stdin is a terminal, disable truncation
 	if !term.IsTerminal(int(os.Stdout.Fd())) && !term.IsTerminal(int(os.Stdin.Fd())) {
 		return 0
 	}
-	
+
 	return termWidth
 }
 
@@ -508,7 +505,7 @@ func filterProcesses(pidToProcess map[int]*Process, pidToChildren map[int][]int,
 // findMatchingPids finds PIDs that match the given filters
 func findMatchingPids(pidToProcess map[int]*Process, skipPids map[int]bool, filters CLI) map[int]bool {
 	matchingPids := make(map[int]bool)
-	
+
 	for _, p := range pidToProcess {
 		if skipPids[p.PID] {
 			continue
@@ -542,18 +539,18 @@ func findMatchingPids(pidToProcess map[int]*Process, skipPids map[int]bool, filt
 			}
 		}
 	}
-	
+
 	return matchingPids
 }
 
 // expandToAncestorsAndDescendants expands matching PIDs to include all ancestors and descendants
 func expandToAncestorsAndDescendants(pidToProcess map[int]*Process, pidToChildren map[int][]int, matchingPids map[int]bool) map[int]bool {
 	pidsToShow := make(map[int]bool)
-	
+
 	for pid := range matchingPids {
 		// Add the matching PID itself
 		pidsToShow[pid] = true
-		
+
 		// Add all ancestors
 		current := pid
 		for {
@@ -564,16 +561,16 @@ func expandToAncestorsAndDescendants(pidToProcess map[int]*Process, pidToChildre
 				break
 			}
 		}
-		
+
 		// Add all descendants
 		queue := []int{pid}
 		visited := make(map[int]bool)
 		visited[pid] = true
-		
+
 		for len(queue) > 0 {
 			current := queue[0]
 			queue = queue[1:]
-			
+
 			for _, child := range pidToChildren[current] {
 				if !visited[child] {
 					pidsToShow[child] = true
@@ -583,7 +580,7 @@ func expandToAncestorsAndDescendants(pidToProcess map[int]*Process, pidToChildre
 			}
 		}
 	}
-	
+
 	return pidsToShow
 }
 
@@ -592,7 +589,7 @@ func parseUserArgs(args []string) ([]string, bool) {
 	userFlagWithoutArg := false
 	processedArgs := make([]string, len(args))
 	copy(processedArgs, args)
-	
+
 	for i := 0; i < len(processedArgs); i++ {
 		if processedArgs[i] == "-u" || processedArgs[i] == "--user" {
 			// Check if next arg exists and is not another flag
@@ -604,6 +601,6 @@ func parseUserArgs(args []string) ([]string, bool) {
 			}
 		}
 	}
-	
+
 	return processedArgs, userFlagWithoutArg
 }

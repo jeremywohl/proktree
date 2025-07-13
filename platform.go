@@ -244,7 +244,7 @@ func parseLinuxCPUTime(timeStr string) time.Duration {
 	hours, _ := strconv.Atoi(parts[0])
 	mins, _ := strconv.Atoi(parts[1])
 	secs, _ := strconv.Atoi(parts[2])
-	
+
 	totalHours := days*24 + hours
 	return time.Duration(totalHours)*time.Hour + time.Duration(mins)*time.Minute + time.Duration(secs)*time.Second
 }
