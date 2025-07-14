@@ -78,6 +78,7 @@ proktree --long-users --long-commands
 | `-i` | `--string-insensitive` | Show only parents and descendants of process names containing STRING case-insensitively (can be specified multiple times) |
 | | `--long-users` | Show full usernames, without truncation |
 | | `--long-commands` | Show full commands, without truncation |
+| `-v` | `--version` | Show version and exit |
 | `-h` | `--help` | Show help message |
 
 ### Column Descriptions

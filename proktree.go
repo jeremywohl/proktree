@@ -14,6 +14,9 @@ import (
 	"golang.org/x/term"
 )
 
+// Version is the current version of proktree
+const Version = "1.2.0"
+
 // DefaultScreenWidth is the fallback when terminal width cannot be determined
 const DefaultScreenWidth = 80
 
@@ -27,6 +30,7 @@ type CLI struct {
 	SearchStringsCase []string `short:"i" name:"string-insensitive" help:"Show only parents and descendants of process names containing STRING case-insensitively (can be specified multiple times)"`
 	ShowFullUser      bool     `name:"long-users" help:"Show full usernames, without truncation"`
 	ShowFullCommand   bool     `name:"long-commands" help:"Show full commands, without truncation"`
+	Version           bool     `short:"v" name:"version" help:"Show version and exit"`
 }
 
 // Main comms
@@ -61,6 +65,12 @@ func main() {
 			Compact: false,
 		}),
 	)
+
+	// Handle version flag
+	if pt.cli.Version {
+		fmt.Printf("proktree version %s\n", Version)
+		os.Exit(0)
+	}
 
 	// If --me or --mine was used, add current user
 	if pt.cli.CurrentUser || pt.cli.CurrentUserAlt {
@@ -599,4 +609,3 @@ func (pt *Proktree) expandToAncestorsAndDescendants(matchingPids map[int]bool) m
 
 	return pidsToShow
 }
-
