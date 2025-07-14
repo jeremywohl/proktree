@@ -42,8 +42,10 @@ proktree
 # Show help
 proktree -h
 
-# Filter by current user (no argument needed)
-proktree -u
+# Filter by current user
+proktree --me
+# or
+proktree --mine
 
 # Filter by specific user
 proktree -u postgres
@@ -69,7 +71,9 @@ proktree --long-users --long-commands
 | Option | Long Form | Description |
 |--------|-----------|-------------|
 | `-p` | `--pid` | Show only parents and descendants of process PID (can be specified multiple times) |
-| `-u` | `--user` | Show only parents and descendants of processes of USER (can be specified multiple times, defaults to current user if -u is used without argument) |
+| `-u` | `--user` | Show only parents and descendants of processes of USER (can be specified multiple times) |
+| | `--me` | Show only parents and descendants of processes of current user |
+| | `--mine` | Show only parents and descendants of processes of current user (alias for --me) |
 | `-s` | `--string` | Show only parents and descendants of process names containing STRING (can be specified multiple times) |
 | `-i` | `--string-insensitive` | Show only parents and descendants of process names containing STRING case-insensitively (can be specified multiple times) |
 | | `--long-users` | Show full usernames, without truncation |
@@ -102,7 +106,7 @@ proktree -s postgres -s mysql -s mongodb
 
 ### Show current user's processes
 ```bash
-proktree -u
+proktree --me
 ```
 
 ### Show a specific service and its supervision tree

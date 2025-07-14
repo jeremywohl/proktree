@@ -24,8 +24,11 @@ to include multiple process trees.
 .TP
 .BR \-u ", " \-\-user =\fIUSER\fR
 Show only parents and descendants of processes owned by USER. Can be specified
-multiple times. When used without an argument (\fB\-u\fR alone), defaults to the
-current user.
+multiple times. (Also see \fB--me\fR and \fB--mine\fR.)
+
+.TP
+.BR \-\-me ", " \-\-mine
+Show only parents and descendants of processes owned by the current user.
 
 .TP
 .BR \-s ", " \-\-string =\fISTRING\fR
@@ -114,7 +117,7 @@ Display all processes in tree format:
 
 .TP
 Show only processes owned by current user:
-.B proktree -u
+.B proktree --me
 
 .TP
 Show processes owned by postgres user:

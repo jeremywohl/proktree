@@ -20,7 +20,9 @@ const DefaultScreenWidth = 80
 // Command-line args
 type CLI struct {
 	PIDs              []string `short:"p" name:"pid" help:"Show only parents and descendants of process PID (can be specified multiple times)"`
-	Users             []string `short:"u" name:"user" help:"Show only parents and descendants of processes of USER (can be specified multiple times, defaults to current user if -u is used without argument)"`
+	Users             []string `short:"u" name:"user" help:"Show only parents and descendants of processes of USER (can be specified multiple times)"`
+	CurrentUser       bool     `name:"me" help:"Show only parents and descendants of processes of current user"`
+	CurrentUserAlt    bool     `name:"mine" help:"Show only parents and descendants of processes of current user (alias for --me)"`
 	SearchStrings     []string `short:"s" name:"string" help:"Show only parents and descendants of process names containing STRING (can be specified multiple times)"`
 	SearchStringsCase []string `short:"i" name:"string-insensitive" help:"Show only parents and descendants of process names containing STRING case-insensitively (can be specified multiple times)"`
 	ShowFullUser      bool     `name:"long-users" help:"Show full usernames, without truncation"`
@@ -51,10 +53,6 @@ func main() {
 	}
 
 	// Parse command-line arguments
-	args, userFlagWithoutArg := parseUserArgs(os.Args[1:])
-
-	// Parse with modified args
-	os.Args = append([]string{os.Args[0]}, args...)
 	_ = kong.Parse(&pt.cli,
 		kong.Name("proktree"),
 		kong.Description("Print your processes as a tree, nicely displayed"),
@@ -64,8 +62,8 @@ func main() {
 		}),
 	)
 
-	// If -u was used without argument, add current user
-	if userFlagWithoutArg {
+	// If --me or --mine was used, add current user
+	if pt.cli.CurrentUser || pt.cli.CurrentUserAlt {
 		if currentUser, err := user.Current(); err == nil {
 			pt.cli.Users = append(pt.cli.Users, currentUser.Username)
 		}
@@ -602,23 +600,3 @@ func (pt *Proktree) expandToAncestorsAndDescendants(matchingPids map[int]bool) m
 	return pidsToShow
 }
 
-// parseUserArgs processes command-line arguments to handle -u/--user flag without argument
-func parseUserArgs(args []string) ([]string, bool) {
-	userFlagWithoutArg := false
-	processedArgs := make([]string, len(args))
-	copy(processedArgs, args)
-
-	for i := 0; i < len(processedArgs); i++ {
-		if processedArgs[i] == "-u" || processedArgs[i] == "--user" {
-			// Check if next arg exists and is not another flag
-			if i+1 >= len(processedArgs) || strings.HasPrefix(processedArgs[i+1], "-") {
-				userFlagWithoutArg = true
-				// Remove the -u/--user flag so Kong doesn't complain
-				processedArgs = append(processedArgs[:i], processedArgs[i+1:]...)
-				i--
-			}
-		}
-	}
-
-	return processedArgs, userFlagWithoutArg
-}
