@@ -1,0 +1,46 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Homebrew Tap
+        uses: actions/checkout@v4
+        with:
+          repository: jeremywohl/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Calculate SHA256
+        id: sha256
+        run: |
+          # Get the actual tarball URL from the release
+          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.event.release.tag_name }}.tar.gz"
+          
+          # Download and calculate SHA256
+          SHA256=$(curl -sL "$TARBALL_URL" | sha256sum | cut -d' ' -f1)
+          
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "url=$TARBALL_URL" >> $GITHUB_OUTPUT
+          echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+
+      - name: Update Formula
+        working-directory: homebrew-tap
+        run: |
+          # Update the formula with new version and SHA256
+          sed -i 's|url ".*"|url "${{ steps.sha256.outputs.url }}"|' Formula/proktree.rb
+          sed -i 's|sha256 ".*"|sha256 "${{ steps.sha256.outputs.sha256 }}"|' Formula/proktree.rb
+
+      - name: Commit and Push
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          git add Formula/proktree.rb
+          git commit -m "Update proktree to ${{ github.event.release.tag_name }}"
+          git push
