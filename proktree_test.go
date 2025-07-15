@@ -386,13 +386,12 @@ func equalIntSlices(a, b []int) bool {
 	return true
 }
 
-
 func TestProcessTreeOutput(t *testing.T) {
 	// Create test processes with static times
 	jul10 := time.Date(2025, 7, 10, 0, 0, 0, 0, time.UTC)     // Current year -> "Jul10"
 	jun01 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)      // Current year -> "Jun01"
-	recent1 := time.Date(2025, 7, 13, 13, 10, 0, 0, time.UTC) // Within 24h -> "13:10"
-	recent2 := time.Date(2025, 7, 13, 14, 40, 0, 0, time.UTC) // Within 24h -> "14:40"
+	recent1 := time.Date(2025, 7, 15, 13, 10, 0, 0, time.UTC) // Within 24h -> "13:10"
+	recent2 := time.Date(2025, 7, 15, 14, 40, 0, 0, time.UTC) // Within 24h -> "14:40"
 	lastYear := time.Date(2023, 12, 25, 0, 0, 0, 0, time.UTC) // Previous year -> "2023"
 
 	processes := map[int]*Process{
@@ -617,6 +616,7 @@ func TestProcessTreeOutput(t *testing.T) {
 			// Create test CLI with showFullUser setting
 			testCLI := tt.cli
 			testCLI.ShowFullUser = tt.showFullUser
+			testCLI.Indent = 2
 
 			// Create a test Proktree instance
 			pt := &Proktree{
@@ -666,6 +666,173 @@ func TestProcessTreeOutput(t *testing.T) {
 			}
 
 			for i, expected := range tt.expected {
+				if i >= len(lines) {
+					t.Errorf("Missing line %d: expected %q", i, expected)
+					continue
+				}
+				if lines[i] != expected {
+					t.Errorf("Line %d mismatch:\ngot:      %q\nexpected: %q", i, lines[i], expected)
+				}
+			}
+		})
+	}
+}
+
+func TestIndentation(t *testing.T) {
+	// Create simple test processes
+	processes := map[int]*Process{
+		1: {
+			PID:       1,
+			PPID:      0,
+			User:      "root",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "init",
+		},
+		10: {
+			PID:       10,
+			PPID:      1,
+			User:      "user",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "parent",
+		},
+		20: {
+			PID:       20,
+			PPID:      10,
+			User:      "user",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "child1",
+		},
+		21: {
+			PID:       21,
+			PPID:      10,
+			User:      "user",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "child2",
+		},
+		30: {
+			PID:       30,
+			PPID:      20,
+			User:      "user",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "grandchild",
+		},
+	}
+
+	pidToChildren := map[int][]int{
+		1:  {10},
+		10: {20, 21},
+		20: {30},
+	}
+
+	skipPids := make(map[int]bool)
+
+	tests := []struct {
+		name         string
+		indentSize   int
+		expectedTree []string
+	}{
+		{
+			name:       "default indentation (2 spaces)",
+			indentSize: 2,
+			expectedTree: []string{
+				"      1 root         0.0   0.0   1.0M  --           --  ─┬─ init",
+				"     10 user         0.0   0.0   1.0M  --           --   └─┬─ parent",
+				"     20 user         0.0   0.0   1.0M  --           --     ├─┬─ child1",
+				"     30 user         0.0   0.0   1.0M  --           --     │ └─── grandchild",
+				"     21 user         0.0   0.0   1.0M  --           --     └─── child2",
+			},
+		},
+		{
+			name:       "single space indentation",
+			indentSize: 1,
+			expectedTree: []string{
+				"      1 root         0.0   0.0   1.0M  --           --  ─┬ init",
+				"     10 user         0.0   0.0   1.0M  --           --   └┬ parent",
+				"     20 user         0.0   0.0   1.0M  --           --    ├┬ child1",
+				"     30 user         0.0   0.0   1.0M  --           --    │└─ grandchild",
+				"     21 user         0.0   0.0   1.0M  --           --    └─ child2",
+			},
+		},
+		{
+			name:       "4 space indentation",
+			indentSize: 4,
+			expectedTree: []string{
+				"      1 root         0.0   0.0   1.0M  --           --  ─┬─── init",
+				"     10 user         0.0   0.0   1.0M  --           --   └───┬─── parent",
+				"     20 user         0.0   0.0   1.0M  --           --       ├───┬─── child1",
+				"     30 user         0.0   0.0   1.0M  --           --       │   └─────── grandchild",
+				"     21 user         0.0   0.0   1.0M  --           --       └─────── child2",
+			},
+		},
+		{
+			name:       "10 space indentation",
+			indentSize: 10,
+			expectedTree: []string{
+				"      1 root         0.0   0.0   1.0M  --           --  ─┬───────── init",
+				"     10 user         0.0   0.0   1.0M  --           --   └─────────┬───────── parent",
+				"     20 user         0.0   0.0   1.0M  --           --             ├─────────┬───────── child1",
+				"     30 user         0.0   0.0   1.0M  --           --             │         └─────────────────── grandchild",
+				"     21 user         0.0   0.0   1.0M  --           --             └─────────────────── child2",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a test Proktree instance with specified indentation
+			pt := &Proktree{
+				processes:   processes,
+				children:    pidToChildren,
+				skipPids:    skipPids,
+				maxUserLen:  10,
+				maxStartLen: 5,
+				maxTimeLen:  8,
+				termWidth:   0,
+				cli:         CLI{Indent: tt.indentSize},
+			}
+
+			// No filters - show all
+			pt.pidsToShow = nil
+
+			// Capture output
+			var buf strings.Builder
+			pt.printProcessTree(&buf, 1, true)
+
+			// Get lines from output
+			output := strings.TrimRight(buf.String(), "\n")
+			var lines []string
+			if output != "" {
+				lines = strings.Split(output, "\n")
+			}
+
+			// Compare output
+			if len(lines) != len(tt.expectedTree) {
+				t.Errorf("Expected %d lines, got %d", len(tt.expectedTree), len(lines))
+				t.Logf("Got:\n%s", strings.Join(lines, "\n"))
+				return
+			}
+
+			for i, expected := range tt.expectedTree {
 				if i >= len(lines) {
 					t.Errorf("Missing line %d: expected %q", i, expected)
 					continue

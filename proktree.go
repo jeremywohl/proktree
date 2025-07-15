@@ -30,6 +30,7 @@ type CLI struct {
 	SearchStringsCase []string `short:"i" name:"string-insensitive" help:"Show only parents and descendants of process names containing STRING case-insensitively (can be specified multiple times)"`
 	ShowFullUser      bool     `name:"long-users" help:"Show full usernames, without truncation"`
 	ShowFullCommand   bool     `name:"long-commands" help:"Show full commands, without truncation"`
+	Indent            int      `name:"indent" help:"Number of spaces for each indentation level (default: 2)" default:"2"`
 	Version           bool     `short:"v" name:"version" help:"Show version and exit"`
 }
 
@@ -192,11 +193,11 @@ type processLine struct {
 	isLast             bool
 	hasVisibleChildren bool
 	content            string // The formatted process info without tree graphics
-	prefix             string // The full tree prefix including indentation
+	prefixParts        []bool // Array of bools for each indent level: true = has vertical line, false = spaces
 }
 
 // collectProcessLines collects all process lines that should be displayed
-func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLast bool) []processLine {
+func (pt *Proktree) collectProcessLines(pid int, depth int, prefixParts []bool, isLast bool) []processLine {
 
 	if pt.skipPids[pid] {
 		return nil
@@ -228,22 +229,23 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLas
 				continue
 			}
 
-			// Determine child prefix based on whether THIS process is last
-			var childPrefix string
+			// Determine child prefix parts based on whether THIS process is last
+			var childPrefixParts []bool
 			if depth == 0 {
 				// Root's children start with no prefix
-				childPrefix = ""
-			} else if isLast {
-				// If this process is last, children get spaces
-				childPrefix = prefix + "  "
+				childPrefixParts = []bool{}
 			} else {
-				// If this process is not last, children get a vertical line
-				childPrefix = prefix + "│ "
+				// Copy parent's prefix and add new level
+				childPrefixParts = make([]bool, len(prefixParts)+1)
+				copy(childPrefixParts, prefixParts)
+				// If this process is last, children get spaces (false)
+				// If this process is not last, children get a vertical line (true)
+				childPrefixParts[len(prefixParts)] = !isLast
 			}
 
 			if pt.pidsToShow != nil && !pt.pidsToShow[childPid] {
 				// Need to check if this child has visible descendants
-				childLines := pt.collectProcessLines(childPid, depth+1, childPrefix, false)
+				childLines := pt.collectProcessLines(childPid, depth+1, childPrefixParts, false)
 				if len(childLines) > 0 {
 					lines = append(lines, childLines...)
 				}
@@ -252,7 +254,7 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLas
 
 			childIdx++
 			isLastChild := childIdx == visibleChildren
-			childLines := pt.collectProcessLines(childPid, depth+1, childPrefix, isLastChild)
+			childLines := pt.collectProcessLines(childPid, depth+1, childPrefixParts, isLastChild)
 			lines = append(lines, childLines...)
 		}
 		return lines
@@ -278,7 +280,7 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLas
 	line := processLine{
 		pid:                pid,
 		depth:              depth,
-		prefix:             prefix,
+		prefixParts:        prefixParts,
 		isLast:             isLast,
 		hasVisibleChildren: hasVisibleChildren,
 		content:            content,
@@ -302,22 +304,23 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLas
 			continue
 		}
 
-		// Determine child prefix based on whether THIS process is last
-		var childPrefix string
+		// Determine child prefix parts based on whether THIS process is last
+		var childPrefixParts []bool
 		if depth == 0 {
 			// Root's children start with no prefix
-			childPrefix = ""
-		} else if isLast {
-			// If this process is last, children get spaces
-			childPrefix = prefix + "  "
+			childPrefixParts = []bool{}
 		} else {
-			// If this process is not last, children get a vertical line
-			childPrefix = prefix + "│ "
+			// Copy parent's prefix and add new level
+			childPrefixParts = make([]bool, len(prefixParts)+1)
+			copy(childPrefixParts, prefixParts)
+			// If this process is last, children get spaces (false)
+			// If this process is not last, children get a vertical line (true)
+			childPrefixParts[len(prefixParts)] = !isLast
 		}
 
 		if pt.pidsToShow != nil && !pt.pidsToShow[childPid] {
 			// Need to check if this child has visible descendants
-			childLines := pt.collectProcessLines(childPid, depth+1, childPrefix, false)
+			childLines := pt.collectProcessLines(childPid, depth+1, childPrefixParts, false)
 			if len(childLines) > 0 {
 				lines = append(lines, childLines...)
 			}
@@ -326,7 +329,7 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLas
 
 		childIdx++
 		isLastChild := childIdx == visibleChildren
-		childLines := pt.collectProcessLines(childPid, depth+1, childPrefix, isLastChild)
+		childLines := pt.collectProcessLines(childPid, depth+1, childPrefixParts, isLastChild)
 		lines = append(lines, childLines...)
 	}
 
@@ -335,27 +338,42 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefix string, isLas
 
 // renderProcessTree renders the collected lines with optimized tree graphics
 func (pt *Proktree) renderProcessTree(w io.Writer, lines []processLine) {
+	// Build indentation strings based on the configured indent size
+	indentSpace := strings.Repeat(" ", pt.cli.Indent)
+	indentVertical := "│" + strings.Repeat(" ", pt.cli.Indent-1)
+
 	// Render each line
 	for _, line := range lines {
+		// Build the prefix string from the prefix parts
+		var prefix strings.Builder
+		for _, hasVertical := range line.prefixParts {
+			if hasVertical {
+				prefix.WriteString(indentVertical)
+			} else {
+				prefix.WriteString(indentSpace)
+			}
+		}
+
 		// Determine the branch characters
 		var branch string
+
 		if line.depth == 0 {
 			if line.hasVisibleChildren {
-				branch = "─┬─"
+				branch = "─┬" + strings.Repeat("─", pt.cli.Indent-1)
 			} else {
-				branch = "───"
+				branch = strings.Repeat("─", pt.cli.Indent+1)
 			}
 		} else if line.isLast {
 			if line.hasVisibleChildren {
-				branch = "└─┬─"
+				branch = "└" + strings.Repeat("─", pt.cli.Indent-1) + "┬" + strings.Repeat("─", pt.cli.Indent-1)
 			} else {
-				branch = "└───"
+				branch = "└" + strings.Repeat("─", pt.cli.Indent*2-1)
 			}
 		} else {
 			if line.hasVisibleChildren {
-				branch = "├─┬─"
+				branch = "├" + strings.Repeat("─", pt.cli.Indent-1) + "┬" + strings.Repeat("─", pt.cli.Indent-1)
 			} else {
-				branch = "├───"
+				branch = "├" + strings.Repeat("─", pt.cli.Indent*2-1)
 			}
 		}
 
@@ -363,7 +381,7 @@ func (pt *Proktree) renderProcessTree(w io.Writer, lines []processLine) {
 		p := pt.processes[line.pid]
 
 		// Build the full line with proper tree alignment
-		treeStr := line.prefix + branch
+		treeStr := prefix.String() + branch
 		// Root needs 2 spaces, others need 3 for proper alignment
 		spacing := "   "
 		if line.depth == 0 {
@@ -386,7 +404,7 @@ func (pt *Proktree) renderProcessTree(w io.Writer, lines []processLine) {
 // printProcessTree prints a process tree starting from the given PID
 func (pt *Proktree) printProcessTree(w io.Writer, pid int, isLast bool) {
 	// Collect all lines
-	lines := pt.collectProcessLines(pid, 0, "", isLast)
+	lines := pt.collectProcessLines(pid, 0, []bool{}, isLast)
 
 	// Render with optimized tree graphics
 	pt.renderProcessTree(w, lines)
