@@ -648,7 +648,6 @@ func TestProcessTreeOutput(t *testing.T) {
 
 			// Capture output
 			var buf strings.Builder
-			pt.printHeader(&buf)
 			pt.printProcessTree(&buf, 1, true)
 
 			// Get lines from output
@@ -673,6 +672,130 @@ func TestProcessTreeOutput(t *testing.T) {
 				if lines[i] != expected {
 					t.Errorf("Line %d mismatch:\ngot:      %q\nexpected: %q", i, lines[i], expected)
 				}
+			}
+		})
+	}
+}
+
+func TestNoHeaderWhenNoProcesses(t *testing.T) {
+	// Create test processes
+	processes := map[int]*Process{
+		1: {
+			PID:       1,
+			PPID:      0,
+			User:      "root",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "init",
+		},
+		10: {
+			PID:       10,
+			PPID:      1,
+			User:      "user1",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "process1",
+		},
+		20: {
+			PID:       20,
+			PPID:      1,
+			User:      "user2",
+			CPUPct:    0.0,
+			MemPct:    0.0,
+			RSSKB:     1024.0,
+			StartTime: nil,
+			CPUTime:   0,
+			Command:   "process2",
+		},
+	}
+
+	pidToChildren := map[int][]int{
+		1: {10, 20},
+	}
+
+	tests := []struct {
+		name           string
+		cli            CLI
+		expectedOutput string // Empty string means no output expected
+	}{
+		{
+			name: "filter with no matches - no header printed",
+			cli: CLI{
+				Users: []string{"nonexistentuser"},
+			},
+			expectedOutput: "",
+		},
+		{
+			name: "filter by non-existent PID - no header printed",
+			cli: CLI{
+				PIDs: []string{"9999"},
+			},
+			expectedOutput: "",
+		},
+		{
+			name: "filter by non-matching string - no header printed",
+			cli: CLI{
+				SearchStrings: []string{"nonexistentprocess"},
+			},
+			expectedOutput: "",
+		},
+		{
+			name: "skip all processes - no header printed",
+			cli:  CLI{},
+			expectedOutput: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// For the "skip all processes" test, mark all PIDs as skipped
+			testSkipPids := make(map[int]bool)
+			if tt.name == "skip all processes - no header printed" {
+				for pid := range processes {
+					testSkipPids[pid] = true
+				}
+			}
+
+			// Create a test Proktree instance
+			testCLI := tt.cli
+			testCLI.Indent = 2 // Set default indentation
+			pt := &Proktree{
+				processes:     processes,
+				children:      pidToChildren,
+				skipPids:      testSkipPids,
+				maxUserLen:    10,
+				maxStartLen:   5,
+				maxTimeLen:    8,
+				termWidth:     80,
+				cli:           testCLI,
+				headerPrinted: false,
+			}
+
+			// Apply filters
+			pt.rootPids, pt.pidsToShow = pt.filterProcesses()
+			pt.calculateColumnWidths()
+
+			// Capture output
+			var buf strings.Builder
+			pt.printTrees(&buf)
+
+			// Get output
+			output := strings.TrimSpace(buf.String())
+
+			// Check if output matches expected
+			if output != tt.expectedOutput {
+				t.Errorf("Expected output %q, got %q", tt.expectedOutput, output)
+			}
+
+			// Verify header was not printed
+			if pt.headerPrinted {
+				t.Errorf("Header should not have been printed for test case: %s", tt.name)
 			}
 		})
 	}
@@ -755,6 +878,8 @@ func TestIndentation(t *testing.T) {
 			name:       "default indentation (2 spaces)",
 			indentSize: 2,
 			expectedTree: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         0.0   0.0   1.0M  --           --  ─┬─ init",
 				"     10 user         0.0   0.0   1.0M  --           --   └─┬─ parent",
 				"     20 user         0.0   0.0   1.0M  --           --     ├─┬─ child1",
@@ -766,6 +891,8 @@ func TestIndentation(t *testing.T) {
 			name:       "single space indentation",
 			indentSize: 1,
 			expectedTree: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         0.0   0.0   1.0M  --           --  ─┬ init",
 				"     10 user         0.0   0.0   1.0M  --           --   └┬ parent",
 				"     20 user         0.0   0.0   1.0M  --           --    ├┬ child1",
@@ -777,6 +904,8 @@ func TestIndentation(t *testing.T) {
 			name:       "4 space indentation",
 			indentSize: 4,
 			expectedTree: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         0.0   0.0   1.0M  --           --  ─┬─── init",
 				"     10 user         0.0   0.0   1.0M  --           --   └───┬─── parent",
 				"     20 user         0.0   0.0   1.0M  --           --       ├───┬─── child1",
@@ -788,6 +917,8 @@ func TestIndentation(t *testing.T) {
 			name:       "10 space indentation",
 			indentSize: 10,
 			expectedTree: []string{
+				"   PID     USER     %CPU  %MEM   RSS   START    TIME    COMMAND",
+				"--------------------------------------------------------------------------------",
 				"      1 root         0.0   0.0   1.0M  --           --  ─┬───────── init",
 				"     10 user         0.0   0.0   1.0M  --           --   └─────────┬───────── parent",
 				"     20 user         0.0   0.0   1.0M  --           --             ├─────────┬───────── child1",

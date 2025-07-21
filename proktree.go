@@ -36,16 +36,17 @@ type CLI struct {
 
 // Main comms
 type Proktree struct {
-	processes   map[int]*Process
-	children    map[int][]int
-	skipPids    map[int]bool
-	pidsToShow  map[int]bool
-	rootPids    []int
-	maxUserLen  int
-	maxStartLen int
-	maxTimeLen  int
-	termWidth   int
-	cli         CLI
+	processes     map[int]*Process
+	children      map[int][]int
+	skipPids      map[int]bool
+	pidsToShow    map[int]bool
+	rootPids      []int
+	maxUserLen    int
+	maxStartLen   int
+	maxTimeLen    int
+	termWidth     int
+	headerPrinted bool
+	cli           CLI
 }
 
 func main() {
@@ -91,7 +92,6 @@ func main() {
 	pt.buildProcessRelationships(processList)
 	pt.applyFilters()
 	pt.calculateColumnWidths()
-	pt.printHeader(os.Stdout)
 	pt.printTrees(os.Stdout)
 }
 
@@ -338,6 +338,12 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefixParts []bool, 
 
 // renderProcessTree renders the collected lines with optimized tree graphics
 func (pt *Proktree) renderProcessTree(w io.Writer, lines []processLine) {
+	// If there are lines to render and the header hasn't been printed yet, print it now
+	if len(lines) > 0 && !pt.headerPrinted {
+		pt.printHeader(w)
+		pt.headerPrinted = true
+	}
+
 	// Build indentation strings based on the configured indent size
 	indentSpace := strings.Repeat(" ", pt.cli.Indent)
 	indentVertical := "│" + strings.Repeat(" ", pt.cli.Indent-1)
