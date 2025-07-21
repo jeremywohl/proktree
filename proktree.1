@@ -51,6 +51,11 @@ Show full command lines without truncation. By default, commands are truncated
 to fit the terminal width.
 
 .TP
+.BR \-\-indent =\fINUM\fR
+Set the number of spaces for each indentation level in the tree display. Default
+is 2 spaces.
+
+.TP
 .BR \-v ", " \-\-version
 Show version and exit.
 
@@ -146,6 +151,10 @@ Show multiple users' processes:
 .TP
 Show full usernames and commands:
 .B proktree --long-users --long-commands
+
+.TP
+Display process tree with 4-space indentation:
+.B proktree --indent 4
 
 .TP
 Combine filters (shows processes matching any filter):

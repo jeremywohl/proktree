@@ -64,6 +64,9 @@ proktree -p 1234 -u www-data -s apache
 
 # Show full usernames and commands
 proktree --long-users --long-commands
+
+# Customize tree indentation (e.g., 4 spaces)
+proktree --indent 4
 ```
 
 ## Command-Line Options
@@ -78,6 +81,7 @@ proktree --long-users --long-commands
 | `-i` | `--string-insensitive` | Show only parents and descendants of process names containing STRING case-insensitively (can be specified multiple times) |
 | | `--long-users` | Show full usernames, without truncation |
 | | `--long-commands` | Show full commands, without truncation |
+| | `--indent` | Set the number of spaces for each indentation level (default: 2) |
 | `-v` | `--version` | Show version and exit |
 | `-h` | `--help` | Show help message |
 
