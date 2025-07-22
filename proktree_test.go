@@ -8,7 +8,14 @@ import (
 )
 
 func TestFormatStartTime(t *testing.T) {
-	now := time.Now()
+	// Use a fixed time for testing
+	fixedNow := time.Date(2025, 7, 16, 10, 0, 0, 0, time.UTC)
+
+	// Create a Proktree instance with fixed nowFunc
+	pt := &Proktree{
+		nowFunc: func() time.Time { return fixedNow },
+	}
+
 	tests := []struct {
 		name     string
 		input    *time.Time
@@ -21,24 +28,24 @@ func TestFormatStartTime(t *testing.T) {
 		},
 		{
 			name:     "recent time (less than 24 hours)",
-			input:    func() *time.Time { t := now.Add(-2 * time.Hour); return &t }(),
-			expected: now.Add(-2 * time.Hour).Format("15:04"),
+			input:    func() *time.Time { t := fixedNow.Add(-2 * time.Hour); return &t }(),
+			expected: fixedNow.Add(-2 * time.Hour).Format("15:04"),
 		},
 		{
 			name:     "current year",
-			input:    func() *time.Time { t := now.Add(-48 * time.Hour); return &t }(),
-			expected: now.Add(-48 * time.Hour).Format("Jan02"),
+			input:    func() *time.Time { t := fixedNow.Add(-48 * time.Hour); return &t }(),
+			expected: fixedNow.Add(-48 * time.Hour).Format("Jan02"),
 		},
 		{
 			name:     "previous year",
-			input:    func() *time.Time { t := now.Add(-400 * 24 * time.Hour); return &t }(),
-			expected: now.Add(-400 * 24 * time.Hour).Format("2006"),
+			input:    func() *time.Time { t := fixedNow.Add(-400 * 24 * time.Hour); return &t }(),
+			expected: fixedNow.Add(-400 * 24 * time.Hour).Format("2006"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatStartTime(tt.input)
+			result := pt.formatStartTime(tt.input)
 			if result != tt.expected {
 				t.Errorf("formatStartTime(%v) = %q, want %q", tt.input, result, tt.expected)
 			}
@@ -387,11 +394,14 @@ func equalIntSlices(a, b []int) bool {
 }
 
 func TestProcessTreeOutput(t *testing.T) {
-	// Create test processes with static times
+	// Use a fixed "now" time for consistent test results
+	testNow := time.Date(2025, 7, 16, 10, 0, 0, 0, time.UTC)
+
+	// Create test processes with static times relative to testNow
 	jul10 := time.Date(2025, 7, 10, 0, 0, 0, 0, time.UTC)     // Current year -> "Jul10"
 	jun01 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)      // Current year -> "Jun01"
-	recent1 := time.Date(2025, 7, 15, 13, 10, 0, 0, time.UTC) // Within 24h -> "13:10"
-	recent2 := time.Date(2025, 7, 15, 14, 40, 0, 0, time.UTC) // Within 24h -> "14:40"
+	recent1 := time.Date(2025, 7, 15, 13, 10, 0, 0, time.UTC) // Within 24h of testNow -> "13:10"
+	recent2 := time.Date(2025, 7, 15, 14, 40, 0, 0, time.UTC) // Within 24h of testNow -> "14:40"
 	lastYear := time.Date(2023, 12, 25, 0, 0, 0, 0, time.UTC) // Previous year -> "2023"
 
 	processes := map[int]*Process{
@@ -627,6 +637,7 @@ func TestProcessTreeOutput(t *testing.T) {
 				maxTimeLen:  8,
 				termWidth:   0,
 				cli:         testCLI,
+				nowFunc:     func() time.Time { return testNow },
 			}
 
 			// Calculate column widths properly
@@ -746,8 +757,8 @@ func TestNoHeaderWhenNoProcesses(t *testing.T) {
 			expectedOutput: "",
 		},
 		{
-			name: "skip all processes - no header printed",
-			cli:  CLI{},
+			name:           "skip all processes - no header printed",
+			cli:            CLI{},
 			expectedOutput: "",
 		},
 	}

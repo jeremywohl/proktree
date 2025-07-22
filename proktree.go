@@ -47,6 +47,7 @@ type Proktree struct {
 	termWidth     int
 	headerPrinted bool
 	cli           CLI
+	nowFunc       func() time.Time // For testing; defaults to time.Now
 }
 
 func main() {
@@ -56,6 +57,7 @@ func main() {
 		children:  make(map[int][]int),
 		skipPids:  make(map[int]bool),
 		termWidth: getTerminalWidth(),
+		nowFunc:   time.Now,
 	}
 
 	// Parse command-line arguments
@@ -93,6 +95,14 @@ func main() {
 	pt.applyFilters()
 	pt.calculateColumnWidths()
 	pt.printTrees(os.Stdout)
+}
+
+// now returns the current time using nowFunc if set, otherwise time.Now
+func (pt *Proktree) now() time.Time {
+	if pt.nowFunc != nil {
+		return pt.nowFunc()
+	}
+	return time.Now()
 }
 
 // buildProcessRelationships builds parent-child relationships
@@ -143,7 +153,7 @@ func (pt *Proktree) calculateColumnWidths() {
 	pt.maxTimeLen = 4
 
 	for _, p := range pt.processes {
-		startStr := formatStartTime(p.StartTime)
+		startStr := pt.formatStartTime(p.StartTime)
 		if len(startStr) > pt.maxStartLen {
 			pt.maxStartLen = len(startStr)
 		}
@@ -264,7 +274,7 @@ func (pt *Proktree) collectProcessLines(pid int, depth int, prefixParts []bool, 
 	content := fmt.Sprintf("%7d %-*s %5.1f %5.1f %6s  %-*s  %-*s",
 		p.PID, pt.maxUserLen, pt.truncateUser(p.User),
 		p.CPUPct, p.MemPct, formatRSS(p.RSSKB),
-		pt.maxStartLen, formatStartTime(p.StartTime),
+		pt.maxStartLen, pt.formatStartTime(p.StartTime),
 		pt.maxTimeLen, formatCPUTime(p.CPUTime))
 
 	// Check if has visible children
@@ -482,12 +492,12 @@ func formatRSS(rssKB float64) string {
 }
 
 // formatStartTime formats start time for display
-func formatStartTime(startTime *time.Time) string {
+func (pt *Proktree) formatStartTime(startTime *time.Time) string {
 	if startTime == nil {
 		return "--"
 	}
 
-	now := time.Now()
+	now := pt.now()
 	ageHours := now.Sub(*startTime).Hours()
 
 	if ageHours < 24 {
